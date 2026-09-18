@@ -475,6 +475,15 @@ export class App {
   readonly tooltipCard = signal<{ inst: CardInstance; x: number; y: number } | null>(null);
 
   /**
+   * 自製小卡（生命區、裝備區、任務卡）的 hover。
+   * 這些不是 CardView 元件，所以要自己把位置換算成浮層需要的格式。
+   */
+  onChipHover(ev: MouseEvent, iid: number): void {
+    const rect = (ev.currentTarget as HTMLElement).getBoundingClientRect();
+    this.onCardHover({ iid, rect });
+  }
+
+  /**
    * 滑鼠移到卡片上時計算浮層位置：優先在卡片右側，空間不足就翻到左側，
    * 並夾在視窗範圍內，避免浮層被切掉。
    */
