@@ -15,6 +15,7 @@ import {
   millToAnger,
   modifier,
   nameOf,
+  payAngerCost,
   payLifeCost,
   rebuild,
   seatLabel,
@@ -81,6 +82,11 @@ export function techniquePlayability(state: GameState, seat: Seat, iid: number):
     return { ok: false, reason: `需要橫置 ${cost} 張生命卡` };
   }
 
+  const angerCost = def.angerCost ?? 0;
+  if (state.sides[seat].anger.length < angerCost) {
+    return { ok: false, reason: `需要捨棄怒氣區 ${angerCost} 張卡` };
+  }
+
   return { ok: true };
 }
 
@@ -96,6 +102,12 @@ export function playTechnique(state: GameState, seat: Seat, iid: number): PlayRe
   // 支付費用
   const cost = Math.max(0, def.cost + modifier(state, seat, 'cost'));
   if (cost > 0) payLifeCost(state, seat, cost);
+
+  const angerCost = def.angerCost ?? 0;
+  if (angerCost > 0) {
+    payAngerCost(state, seat, angerCost);
+    log(state, seat, `捨棄怒氣區 ${angerCost} 張卡作為代價。`, 'info');
+  }
 
   // 移出手牌
   side.hand.splice(

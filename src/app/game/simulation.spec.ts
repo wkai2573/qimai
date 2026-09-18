@@ -46,7 +46,7 @@ function autoTurn(state: GameState): void {
 
 /** 跑到分出勝負，回傳花了幾回合 */
 function playOut(seed: number, maxTurns = 500): { winner: string | null; turns: number } {
-  const g = createGame(seed);
+  const g = createGame(seed, { manualLifeSetup: false });
   let guard = 0;
 
   while (!g.winner && guard++ < maxTurns) {
@@ -89,7 +89,7 @@ describe('整局模擬', () => {
 
   it('模擬過程中不會產生壞掉的卡牌參照', () => {
     for (let seed = 1; seed <= 30; seed++) {
-      const g = createGame(seed);
+      const g = createGame(seed, { manualLifeSetup: false });
       let guard = 0;
 
       while (!g.winner && guard++ < 500) {
@@ -124,7 +124,7 @@ describe('整局模擬', () => {
   });
 
   it('遊戲結束後狀態被正確標記', () => {
-    const g = createGame(7);
+    const g = createGame(7, { manualLifeSetup: false });
     let guard = 0;
     while (!g.winner && guard++ < 500) autoTurn(g);
 

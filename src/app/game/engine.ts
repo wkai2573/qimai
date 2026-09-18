@@ -23,6 +23,8 @@ import {
   makeInstance,
   millToDiscard,
   modifier,
+  nameOf,
+  payAngerCost,
   payLifeCost,
   readyAllLife,
   resetTurnStats,
@@ -32,7 +34,7 @@ import {
   withRng,
 } from './internal';
 import { evaluateQuest } from './quests';
-import type { GameState, Seat, SideState } from './types';
+import type { GameState, PendingChoice, Seat, SideState } from './types';
 import { EQUIP_LABEL, EQUIP_LIMITS, OTHER_SEAT, RULES } from './types';
 import type { PlayResult } from './combat';
 
@@ -62,6 +64,11 @@ function emptySide(seat: Seat): SideState {
 export interface CreateGameOptions {
   mainDeck?: Readonly<Record<string, number>>;
   questDeck?: readonly string[];
+  /**
+   * 開局生命卡是否由玩家自己挑。
+   * 預設 true；測試與 AI 對戰可設 false 走自動流程。
+   */
+  manualLifeSetup?: boolean;
 }
 
 /**
@@ -106,37 +113,60 @@ export function createGame(seed: number, opts: CreateGameOptions = {}): GameStat
     side.questDeck = [starter, ...rest];
   }
 
-  // 隨機決定先攻
+  // 隨機決定先攻。真正的回合要等雙方生命區都設定好才會開始
   const playerFirst = withRng(state, (rng) => rng.int(2) === 0);
   const first: Seat = playerFirst ? 'player' : 'npc';
-  const second: Seat = OTHER_SEAT[first];
+  state.activeSeat = first; // 暫存先攻，beginTurn 時才真正使用
 
   log(state, null, `${seatLabel(first)}取得先攻。`, 'system');
 
-  // 起始抽牌並覆蓋生命區（先攻 8 張、後攻 10 張，各選 3 張進生命區）
-  for (const seat of [first, second] as Seat[]) {
+  // 起始抽牌（先攻 8 張、後攻 10 張）
+  for (const seat of ['player', 'npc'] as Seat[]) {
     const count = seat === first ? RULES.firstDraw : RULES.secondDraw;
-    const side = state.sides[seat];
-
-    side.deck = side.deck; // 保持參考
     drawForSetup(state, seat, count);
-
-    // 選 3 張覆蓋在生命區。第一版自動取手牌前 3 張（生命區的卡可以隨時查看）
-    for (let i = 0; i < RULES.lifeCount; i++) {
-      const c = side.hand.shift();
-      if (!c) break;
-      side.life.push({ card: c, tapped: false });
-    }
-
-    log(
-      state,
-      seat,
-      `${seatLabel(seat)}起始抽 ${count} 張，覆蓋 ${side.life.length} 張生命卡，手牌 ${side.hand.length} 張。`,
-      'info',
-    );
+    log(state, seat, `${seatLabel(seat)}起始抽 ${count} 張卡。`, 'info');
   }
 
-  // 打開任務牌組最上面一張
+  // NPC 的生命區自動決定
+  autoSetupLife(state, 'npc');
+
+  // 玩家自己挑 3 張（除非呼叫端要求自動，例如測試或 AI 對戰）
+  if (opts.manualLifeSetup === false) {
+    autoSetupLife(state, 'player');
+    finishSetup(state);
+  } else {
+    state.pending = {
+      kind: 'lifeSetup',
+      seat: 'player',
+      prompt: `從手牌選擇 ${RULES.lifeCount} 張覆蓋到生命區`,
+      candidates: [...state.sides.player.hand],
+      pick: RULES.lifeCount,
+      selected: [],
+    };
+    log(state, 'player', `請從手牌選擇 ${RULES.lifeCount} 張卡作為生命區，選好才會開始遊戲。`, 'system');
+  }
+
+  return state;
+}
+
+/** 自動取手牌前 N 張作為生命區（NPC 與測試用） */
+function autoSetupLife(state: GameState, seat: Seat): void {
+  const side = state.sides[seat];
+
+  for (let i = 0; i < RULES.lifeCount; i++) {
+    const c = side.hand.shift();
+    if (!c) break;
+    side.life.push({ card: c, tapped: false });
+  }
+
+  log(state, seat, `${seatLabel(seat)}覆蓋 ${side.life.length} 張生命卡，手牌 ${side.hand.length} 張。`, 'info');
+}
+
+/**
+ * 開局收尾：翻開雙方起始任務，然後開始第一個回合。
+ * 由 createGame（自動模式）或 resolveChoice（玩家選完生命卡）呼叫。
+ */
+function finishSetup(state: GameState): void {
   for (const seat of ['player', 'npc'] as Seat[]) {
     const side = state.sides[seat];
     const q = side.questDeck.shift();
@@ -146,8 +176,72 @@ export function createGame(seed: number, opts: CreateGameOptions = {}): GameStat
     }
   }
 
-  beginTurn(state, first);
-  return state;
+  beginTurn(state, state.activeSeat);
+}
+
+// ─────────────────────────────────────────────
+// 玩家選擇（檢索、開局生命區）
+// ─────────────────────────────────────────────
+
+/**
+ * 玩家做完選擇後接手。支援多選：每次呼叫加入一張，累積到 pick 張才結算。
+ * 再點一次已選中的卡可以取消選取。
+ */
+export function resolveChoice(state: GameState, iid: number): void {
+  const pending = state.pending;
+  if (!pending || state.winner) return;
+  if (!pending.candidates.some((c) => c.iid === iid)) return;
+
+  const at = pending.selected.indexOf(iid);
+  if (at >= 0) {
+    pending.selected.splice(at, 1);
+    return;
+  }
+
+  pending.selected.push(iid);
+  if (pending.selected.length < pending.pick) return;
+
+  if (pending.kind === 'search') finishSearchChoice(state, pending);
+  else finishLifeSetupChoice(state, pending);
+}
+
+/** 檢索結算：選中的進手牌，其餘依設定進棄牌區或放回牌組頂 */
+function finishSearchChoice(state: GameState, pending: PendingChoice): void {
+  const side = state.sides[pending.seat];
+
+  const picked = pending.candidates.filter((c) => pending.selected.includes(c.iid));
+  const rest = pending.candidates.filter((c) => !pending.selected.includes(c.iid));
+
+  side.hand.push(...picked);
+  if (pending.rest === 'deckTop') side.deck.unshift(...rest);
+  else side.discard.push(...rest);
+
+  state.pending = null;
+  log(state, pending.seat, `檢索取得「${picked.map(nameOf).join('、')}」。`, 'info');
+}
+
+/** 開局生命區結算：選中的卡從手牌移到生命區，然後開始遊戲 */
+function finishLifeSetupChoice(state: GameState, pending: PendingChoice): void {
+  const side = state.sides[pending.seat];
+  const picked = pending.candidates.filter((c) => pending.selected.includes(c.iid));
+
+  for (const target of picked) {
+    const i = side.hand.findIndex((c) => c.iid === target.iid);
+    if (i >= 0) {
+      side.hand.splice(i, 1);
+      side.life.push({ card: target, tapped: false });
+    }
+  }
+
+  state.pending = null;
+  log(
+    state,
+    pending.seat,
+    `生命區設定完成（${side.life.length} 張），手牌 ${side.hand.length} 張。`,
+    'info',
+  );
+
+  finishSetup(state);
 }
 
 /** 開局抽牌：此時還沒有生命區，所以牌組不可能抽完，不需要重構邏輯 */
@@ -260,8 +354,17 @@ export function playCard(state: GameState, seat: Seat, iid: number): PlayResult 
     return { ok: false, reason: `需要橫置 ${cost} 張生命卡，目前不足` };
   }
 
+  const angerCost = def.angerCost ?? 0;
+  if (state.sides[seat].anger.length < angerCost) {
+    return { ok: false, reason: `需要捨棄怒氣區 ${angerCost} 張卡，目前不足` };
+  }
+
   // ── 所有檢查通過，開始結算 ──
   if (cost > 0) payLifeCost(state, seat, cost);
+  if (angerCost > 0) {
+    payAngerCost(state, seat, angerCost);
+    log(state, seat, `捨棄怒氣區 ${angerCost} 張卡作為代價。`, 'info');
+  }
 
   side.hand.splice(
     side.hand.findIndex((c) => c.iid === iid),

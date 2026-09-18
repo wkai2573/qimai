@@ -77,6 +77,13 @@ const SUO = art(`
   <path d="M32 8v8M52 52h8" opacity=".5" />
 `);
 
+const NUTAO = art(`
+  <path d="M26 8v20M34 6v22M42 8v20" />
+  <path d="M6 38c8-9 16-9 24 0s16 9 24 0" />
+  <path d="M6 50c8-9 16-9 24 0s16 9 24 0" opacity=".55" />
+  <path d="M22 30h24" opacity=".5" />
+`);
+
 // ─────────────────────────────────────────────
 // 招式：奧義
 // ─────────────────────────────────────────────
@@ -86,6 +93,13 @@ const GUAN = art(`
   <path d="M36 22l22 10-22 10z" ${F} />
   <path d="M14 18l6 10M10 46l10-10" opacity=".6" />
   <circle cx="6" cy="32" r="4" ${F} />
+`);
+
+const NUQI = art(`
+  <circle cx="32" cy="34" r="6" ${F} />
+  <path d="M32 6v12M32 50v10M8 34h12M44 34h12" />
+  <path d="M15 17l8 8M49 17l-8 8M15 51l8-8M49 51l-8-8" opacity=".6" />
+  <circle cx="32" cy="34" r="17" stroke-dasharray="3 5" opacity=".7" />
 `);
 
 const FEN = art(`
@@ -201,6 +215,20 @@ const SHIYI = art(`
   <path d="M40 30v-8a5 5 0 0 1 10 0v18a16 16 0 0 1-16 16h-6a14 14 0 0 1-14-14v-8a5 5 0 0 1 10 0" />
 `);
 
+const NAQI = art(`
+  <path d="M12 20c10 7 30 7 40 0" />
+  <path d="M8 33c12 8 36 8 48 0" opacity=".7" />
+  <path d="M12 46c10-7 30-7 40 0" opacity=".5" />
+  <circle cx="32" cy="33" r="4" ${F} />
+`);
+
+const QIHAI = art(`
+  <path d="M32 8v16" />
+  <path d="M25 17l7 7 7-7" />
+  <path d="M10 34c8-8 16-8 22 0s14 8 22 0" />
+  <path d="M10 46c8-8 16-8 22 0s14 8 22 0" opacity=".6" />
+`);
+
 const SANSHOU = art(`
   <path d="M14 8h14v20H14z" />
   <path d="M36 8h14v20H36z" opacity=".7" />
@@ -224,6 +252,13 @@ const TIEBI = art(`
   <path d="M32 8l20 8v18c0 12-9 20-20 24-11-4-20-12-20-24V16z" />
   <path d="M32 16v26" opacity=".5" />
   <path d="M22 30h20" opacity=".5" />
+`);
+
+const HUICHUN = art(`
+  <path d="M32 56V26" />
+  <path d="M32 34c-10 0-17-6-17-15 9 0 17 7 17 15z" ${F} opacity=".65" />
+  <path d="M32 30c10 0 17-6 17-15-9 0-17 7-17 15z" ${F} opacity=".85" />
+  <path d="M20 56h24" opacity=".5" />
 `);
 
 const POJUN = art(`
@@ -283,8 +318,10 @@ const ART_BY_ID: Record<string, string> = {
   secret_lie: LIE,
   secret_hui: HUI,
   secret_suo: SUO,
+  secret_nutao: NUTAO,
   ult_guan: GUAN,
   ult_fen: FEN,
+  ult_nuqi: NUQI,
   hidden_tian: TIAN,
   hidden_wu: WU,
 
@@ -303,11 +340,14 @@ const ART_BY_ID: Record<string, string> = {
   act_tuna: TUNA,
   act_xunxi: XUNXI,
   act_shiyi: SHIYI,
+  act_naqi: NAQI,
+  act_qihai: QIHAI,
   act_sanshou: SANSHOU,
 
   // 事件
   ev_qishi: QISHI,
   ev_tiebi: TIEBI,
+  ev_huichun: HUICHUN,
   ev_pojun: POJUN,
 
   // 任務

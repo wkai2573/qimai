@@ -17,7 +17,7 @@ import { isDragGesture, isInsideDropZone } from './drag-utils';
 import { DEFAULT_CARD_WIDTH, computeHandSpacing } from './hand-layout';
 import { card } from './game/cards';
 import { GameStore, SPEED_OPTIONS, type FxPopup, type NpcSpeed, type PileKind } from './game-store';
-import { PHASE_LABEL, type CardInstance, type Phase, type Seat } from './game/types';
+import { PHASE_LABEL, RULES, type CardInstance, type Phase, type Seat } from './game/types';
 import { RULE_SECTIONS } from './rules';
 
 /** 是否已看過規則；第一次遊玩會自動打開規則說明 */
@@ -79,6 +79,8 @@ export class App {
   readonly speedOptions = SPEED_OPTIONS;
   readonly npcSpeed = this.store.npcSpeed;
   readonly speedLabel = this.store.speedLabel;
+  /** 直接讀引擎常數，避免 UI 文字與規則不同步 */
+  readonly burstMill = RULES.burstMill;
 
   setSpeed(speed: NpcSpeed): void {
     this.store.setNpcSpeed(speed);
@@ -103,7 +105,7 @@ export class App {
   readonly phaseHint = computed(() => {
     switch (this.store.phase()) {
       case 'burst':
-        return '可丟棄牌組頂 5 張來抽 1 張，或直接跳過。';
+        return `可丟棄牌組頂 ${RULES.burstMill} 張來抽 1 張，或直接跳過。`;
       case 'main':
         return '點手牌看資訊，拖到中央戰鬥區或按「使用這張卡」出牌。費用＝橫置生命卡。';
       case 'combat':
@@ -140,8 +142,14 @@ export class App {
   readonly popups = this.store.popups;
   readonly activeSeat = this.store.activeSeat;
 
-  /** 手牌（主要階段與戰鬥階段共用同一個顯示區） */
-  readonly hand = computed(() => this.store.player().hand);
+  /**
+   * 手牌。
+   *
+   * 刻意回傳**副本**：引擎是就地修改手牌陣列（push / splice），參考永遠不變，
+   * 若直接回傳原陣列，computed 會因為 Object.is 相等而不通知下游，
+   * 排版 effect 就不會重跑——抽到新牌時手牌會來不及收窄而溢出畫面。
+   */
+  readonly hand = computed(() => [...this.store.player().hand]);
 
   /** 手牌列容器，用來量測可用寬度 */
   readonly handRow = viewChild<ElementRef<HTMLElement>>('handRow');
@@ -277,51 +285,22 @@ export class App {
   }
 
   // ─────────────────────────────────────────────
-  // 卡片詳細面板
+  // 卡片操作
   // ─────────────────────────────────────────────
 
-  /** 目前選中（顯示在面板）的卡。null 表示面板顯示提示文字 */
-  private readonly selectedIid = signal<number | null>(null);
-
-  readonly selectedInst = computed<CardInstance | null>(() => {
-    const iid = this.selectedIid();
-    return iid === null ? null : this.findCard(iid);
-  });
-
-  /** 動作按鈕文字。不在手牌時回傳空字串（面板就不顯示按鈕） */
-  readonly selectedActionLabel = computed(() => {
-    const inst = this.selectedInst();
-    if (!inst) return '';
-    const inHand = this.store.player().hand.some((c) => c.iid === inst.iid);
-    if (!inHand) return '';
-    return this.store.phase() === 'combat' ? '出招' : '使用這張卡';
-  });
-
-  readonly selectedActionEnabled = computed(() => {
-    const inst = this.selectedInst();
-    return inst ? this.store.canPlay(inst.iid) : false;
-  });
-
-  /** 點卡片 → 顯示詳細資訊（再點一次取消；窄螢幕時會開成底部彈窗） */
-  pickCard(iid: number): void {
+  /**
+   * 點手牌：直接使用（主要階段）或出招（戰鬥階段）。
+   *
+   * 卡片資訊改由滑鼠移入的浮層提供，所以點擊不需要再「先選取、再看資訊、再按按鈕」。
+   * 拖曳出牌仍然可用，兩種操作並存。
+   */
+  executeCard(iid: number): void {
     // 剛拖曳完的那次 click 不是真的點擊
     if (this.ignoreNextClick) {
       this.ignoreNextClick = false;
       return;
     }
-    this.selectedIid.set(this.selectedIid() === iid ? null : iid);
-  }
-
-  /** 關閉詳細資訊（窄螢幕彈窗的背景點擊與關閉鈕用） */
-  clearSelection(): void {
-    this.selectedIid.set(null);
-  }
-
-  /** 詳細面板上的動作按鈕：出牌或出招 */
-  useSelected(): void {
-    const inst = this.selectedInst();
-    if (!inst) return;
-    this.execute(inst.iid);
+    this.execute(iid);
   }
 
   // ─────────────────────────────────────────────
@@ -377,7 +356,6 @@ export class App {
     this.dropActive.set(false);
 
     if (dropped) {
-      this.selectedIid.set(null);
       this.execute(d.iid);
     }
   }
@@ -389,7 +367,6 @@ export class App {
     } else {
       this.store.play(iid);
     }
-    this.selectedIid.set(null);
   }
 
   /** 指標是否落在戰鬥區內（判定範圍略微外擴，讓拖放好操作） */
@@ -472,6 +449,61 @@ export class App {
 
   chooseLifeCard(iid: number): void {
     this.store.chooseLifeCard(iid);
+  }
+
+  // ─────────────────────────────────────────────
+  // 通用選擇（開局生命區、檢索）
+  // ─────────────────────────────────────────────
+
+  readonly pendingChoice = this.store.pendingChoice;
+
+  /** 可以選的卡 */
+  readonly choiceCandidates = computed<CardInstance[]>(() => this.pendingChoice()?.candidates ?? []);
+
+  /** 已經點選的卡（用 Set 方便模板判斷） */
+  readonly choiceSelected = computed(() => new Set(this.pendingChoice()?.selected ?? []));
+
+  /** 點一張卡：加入選取，選滿就自動結算 */
+  chooseCard(iid: number): void {
+    this.store.chooseCard(iid);
+  }
+
+  // ─────────────────────────────────────────────
+  // 卡片詳細浮層（滑鼠移入時顯示）
+  // ─────────────────────────────────────────────
+
+  readonly tooltipCard = signal<{ inst: CardInstance; x: number; y: number } | null>(null);
+
+  /**
+   * 滑鼠移到卡片上時計算浮層位置：優先在卡片右側，空間不足就翻到左側，
+   * 並夾在視窗範圍內，避免浮層被切掉。
+   */
+  onCardHover(info: { iid: number; rect: DOMRect } | null): void {
+    if (!info) {
+      this.tooltipCard.set(null);
+      return;
+    }
+
+    const inst = this.findCard(info.iid);
+    if (!inst) {
+      this.tooltipCard.set(null);
+      return;
+    }
+
+    const W = 260;
+    const H = 380;
+    const GAP = 12;
+    const EDGE = 8;
+
+    let x = info.rect.right + GAP;
+    if (x + W > window.innerWidth - EDGE) x = info.rect.left - W - GAP;
+    if (x < EDGE) x = EDGE;
+
+    let y = info.rect.top;
+    if (y + H > window.innerHeight - EDGE) y = window.innerHeight - H - EDGE;
+    if (y < EDGE) y = EDGE;
+
+    this.tooltipCard.set({ inst, x, y });
   }
 
   logToneClass(tone: string): string {

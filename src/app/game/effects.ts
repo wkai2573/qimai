@@ -132,11 +132,28 @@ export function applyEffect(state: GameState, seat: Seat, effect: Effect, source
       const looked = side.deck.splice(0, effect.look);
       if (looked.length === 0) break;
 
-      // 優先取符合篩選條件的卡，不足再取剩下的
+      const pick = Math.min(effect.pick, looked.length);
+
+      // 玩家自己挑：暫停遊戲，等 UI 把選擇結果送回來
+      if (seat === 'player') {
+        state.pending = {
+          kind: 'search',
+          seat,
+          prompt: `${sourceName}：從牌組頂 ${looked.length} 張中選 ${pick} 張加入手牌`,
+          candidates: looked,
+          pick,
+          selected: [],
+          rest: 'discard',
+        };
+        log(state, seat, `${sourceName}：檢索中——請選擇要加入手牌的卡。`, 'info');
+        break;
+      }
+
+      // NPC 沒有這個待遇，直接由程式挑（優先取符合篩選條件的卡）
       const preferred = filterCards(looked, effect.filter);
       const ordered = [...preferred, ...looked.filter((c) => !preferred.includes(c))];
-      const picked = ordered.slice(0, effect.pick);
-      const rest = ordered.slice(effect.pick);
+      const picked = ordered.slice(0, pick);
+      const rest = ordered.slice(pick);
 
       side.hand.push(...picked);
       side.discard.push(...rest);

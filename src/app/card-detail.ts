@@ -27,7 +27,7 @@ import { CARD_KIND_LABEL, EQUIP_LABEL, TECHNIQUE_LABEL } from './game/types';
         </div>
 
         <!-- 資訊 -->
-        <div class="rounded-lg border border-slate-800 bg-slate-900/70 p-2.5">
+        <div class="rounded-lg border border-slate-700 bg-slate-900 p-2.5">
           <div class="flex items-center gap-1.5">
             <span class="rounded px-1.5 py-0.5 text-[10px] font-bold" [class]="badgeClass()">{{ typeLabel() }}</span>
             @if (def()!.levelRequirement) {

@@ -23,6 +23,7 @@ interface TechOpts {
   damage?: number;
   guard?: number;
   cost?: number;
+  angerCost?: number;
   liberation?: CardDef['liberation'];
   comboBonus?: CardDef['comboBonus'];
   effects?: Effect[];
@@ -43,6 +44,7 @@ function technique(
     damage: opts.damage ?? 0,
     guard: opts.guard ?? 1,
     cost: opts.cost ?? 0,
+    angerCost: opts.angerCost,
     liberation: opts.liberation,
     comboBonus: opts.comboBonus,
     effects: opts.effects,
@@ -134,6 +136,13 @@ const TECHNIQUES: CardDef[] = [
     '旋身迴踢。若接在特技之後，這一擊威力更增（+2 傷害）。',
   ),
   technique('secret_suo', '鎖脈手', 'secret', { damage: 2, guard: 2 }, '封鎖經脈，令對手防禦鬆動。'),
+  technique(
+    'secret_nutao',
+    '怒濤掌',
+    'secret',
+    { damage: 4, guard: 2, angerCost: 2 },
+    '捨棄怒氣區 2 張卡。將積累的怒氣化為掌力。',
+  ),
 
   // ── 奧義：主力傷害 ──
   technique('ult_guan', '貫脈衝', 'ultimate', { damage: 4, guard: 2, cost: 1 }, '一擊貫通氣脈。需橫置 1 張生命卡。'),
@@ -146,6 +155,13 @@ const TECHNIQUES: CardDef[] = [
   ),
 
   // ── 密奧義：王牌，需解放條件，合計最多 6 張 ──
+  technique(
+    'ult_nuqi',
+    '怒氣爆發',
+    'ultimate',
+    { damage: 6, guard: 1, angerCost: 3 },
+    '捨棄怒氣區 3 張卡。傾瀉而出的爆發一擊。',
+  ),
   technique(
     'hidden_tian',
     '天罡滅脈',
@@ -299,6 +315,15 @@ const ACTIONS: CardDef[] = [
     '從棄牌區取 1 張卡加入手牌。',
   ),
   action('act_sanshou', '散手', 1, 0, [{ type: 'discardHand', n: 1 }, { type: 'draw', n: 2 }], '棄 1 張手牌，抽 2 張。'),
+  action(
+    'act_naqi',
+    '納氣',
+    1,
+    1,
+    [{ type: 'recover', n: 2 }, { type: 'draw', n: 1 }],
+    '回復 2：怒氣區 2 張卡放回牌組頂，然後抽 1 張。',
+  ),
+  action('act_qihai', '氣海歸流', 1, 2, [{ type: 'recover', n: 5 }], '回復 5：將怒氣區 5 張卡放回牌組頂。'),
 ];
 
 // ─────────────────────────────────────────────
@@ -321,6 +346,14 @@ const EVENTS: CardDef[] = [
     1,
     [{ type: 'modify', target: 'guardValue', amount: 2, expiry: { at: 'opponentTurnEnd' } }],
     '到對手回合結束前，我方防禦值 +2。',
+  ),
+  event(
+    'ev_huichun',
+    '回春',
+    1,
+    1,
+    [{ type: 'modify', target: 'recoverAmount', amount: 2, expiry: { at: 'thisTurnEnd' } }],
+    '本回合內，所有「回復N」的 N +2。',
   ),
   event(
     'ev_pojun',
@@ -386,8 +419,8 @@ const QUESTS: CardDef[] = [
     'q_dacheng',
     '大成之境',
     false,
-    { type: 'levelAtLeast', n: 3 },
-    '等級達到 3',
+    { type: 'playTierInTurn', tier: 'hidden', n: 1 },
+    '一個回合內打出 1 張密奧義',
     { type: 'takeDamageInTurn', n: 10 },
     '一個回合內受到 10 點以上傷害',
     '氣脈大成，只差臨門一腳。',
@@ -429,38 +462,43 @@ export function questPool(): CardDef[] {
 
 /** 主牌組：卡 id → 張數。合計必須是 50 張 */
 export const STARTER_MAIN_DECK: Readonly<Record<string, number>> = {
-  // 特技 11
-  trick_beng: 4,
+  // 特技 9
+  trick_beng: 3,
   trick_chan: 2,
   trick_ta: 2,
-  trick_cun: 3,
+  trick_cun: 2,
   // 密技 9
-  secret_lie: 4,
-  secret_hui: 3,
+  secret_lie: 3,
+  secret_hui: 2,
   secret_suo: 2,
-  // 奧義 5
+  secret_nutao: 2,
+  // 奧義 7
   ult_guan: 3,
   ult_fen: 2,
+  ult_nuqi: 2,
   // 密奧義 4（合計上限 6）
   hidden_tian: 2,
   hidden_wu: 2,
-  // 裝備 12
+  // 裝備 10
   eq_duanyue: 2,
   eq_chanqi: 1,
-  eq_jingxin: 2,
+  eq_jingxin: 1,
   eq_xuantie: 1,
-  eq_hukou: 2,
+  eq_hukou: 1,
   eq_tayun: 2,
   eq_juqi: 1,
   eq_huxin: 1,
-  // 行動 6
-  act_ning: 2,
+  // 行動 8
+  act_ning: 1,
   act_tuna: 2,
   act_xunxi: 1,
   act_shiyi: 1,
+  act_naqi: 2,
+  act_qihai: 1,
   // 事件 3
-  ev_qishi: 2,
+  ev_qishi: 1,
   ev_tiebi: 1,
+  ev_huichun: 1,
   // 合計 50
 };
 

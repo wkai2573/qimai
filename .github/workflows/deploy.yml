@@ -38,6 +38,10 @@ jobs:
 
       - name: Setup Pages
         uses: actions/configure-pages@v5
+        with:
+          # 若 repository 還沒啟用 Pages，這個參數會自動啟用並把來源設為 GitHub Actions，
+          # 省去手動到 Settings → Pages 設定。需要 pages: write 權限（已在檔案頂部宣告）。
+          enablement: true
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3

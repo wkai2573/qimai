@@ -3,7 +3,15 @@ import { Injectable, computed, signal } from '@angular/core';
 import { npcCombatPhase, npcMainPhase, npcShouldBurst } from './game/ai';
 import { card } from './game/cards';
 import { clearCombat, finishCombat, playTechnique, techniquePlayability } from './game/combat';
-import { createGame, endTurnFully, enterCombat, playCard, resolveBurst, resolveRebuild } from './game/engine';
+import {
+  createGame,
+  endTurnFully,
+  enterCombat,
+  playCard,
+  resolveBurst,
+  resolveChoice,
+  resolveRebuild,
+} from './game/engine';
 import type { CardInstance, GameState, LogEntry, Seat } from './game/types';
 
 /** 可以點開查看內容的堆疊區 */
@@ -97,6 +105,9 @@ export class GameStore {
   /** 重構待決：非 null 時遊戲暫停，等玩家挑一張生命卡加入手牌 */
   readonly pendingRebuild = computed(() => this._state().pendingRebuild);
 
+  /** 其他待決選擇（開局生命區、檢索） */
+  readonly pendingChoice = computed(() => this._state().pending);
+
   // ── 衍生的檢視狀態 ──
   readonly phase = computed(() => this._state().phase);
   readonly turn = computed(() => this._state().turn);
@@ -110,7 +121,13 @@ export class GameStore {
   /** 玩家現在是否可以操作 */
   readonly playerCanAct = computed(() => {
     const s = this._state();
-    return !s.winner && s.activeSeat === 'player' && !this.npcThinking() && s.pendingRebuild === null;
+    return (
+      !s.winner &&
+      s.activeSeat === 'player' &&
+      !this.npcThinking() &&
+      s.pendingRebuild === null &&
+      s.pending === null
+    );
   });
 
   /** 目前節奏的說明文字，設定面板顯示用 */
@@ -160,6 +177,16 @@ export class GameStore {
 
   closePile(): void {
     this.pileView.set(null);
+  }
+
+  /** 玩家在檢索／開局對話框裡點了一張卡 */
+  chooseCard(iid: number): void {
+    const s = this._state();
+    if (!s.pending) return;
+
+    resolveChoice(s, iid);
+    this.publish(s);
+    this.afterChange();
   }
 
   /** 玩家在重構對話框裡挑好要加入手牌的生命卡 */
@@ -339,7 +366,16 @@ export class GameStore {
     const fresh = s.log.slice(this.logCursor);
     this.logCursor = s.log.length;
 
-    this._state.set({ ...s });
+    // sides 也做淺拷貝。內部的陣列仍是同一份（引擎就地修改），
+    // 但物件參考會變，這樣依賴 sides.player / sides.npc 的 computed
+    // 才會因為 Object.is 不相等而正確通知下游。
+    this._state.set({
+      ...s,
+      sides: {
+        player: { ...s.sides.player },
+        npc: { ...s.sides.npc },
+      },
+    });
 
     if (fresh.length > 0) this.emitFromLog(fresh);
   }

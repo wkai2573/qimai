@@ -73,7 +73,7 @@ export const RULES = {
   /** 每回合抽牌階段抽幾張 */
   drawPerTurn: 2,
   /** 爆發階段丟棄牌組頂幾張來換 1 張手牌 */
-  burstMill: 5,
+  burstMill: 2,
   /** 事件卡每回合使用上限 */
   eventsPerTurn: 1,
 } as const;
@@ -193,6 +193,12 @@ export interface CardDef {
 
   /** 費用：需橫置幾張生命卡支付。招式卡通常為 0，改用其他代價 */
   cost: number;
+
+  /**
+   * 額外費用：捨棄怒氣區 N 張卡（進入棄牌區）。
+   * 用來做出「把累積的怒氣轉換成力量」的卡片。
+   */
+  angerCost?: number;
 
   /** 卡面敘述（UI 顯示用） */
   text: string;
@@ -336,13 +342,29 @@ export interface LogEntry {
   tone: LogTone;
 }
 
-/** 需要玩家做選擇時的待決事項（第一版由 AI 自動決策，UI 互動留待後續擴充） */
+/** 需要玩家做選擇的種類 */
+export type PendingChoiceKind =
+  | 'search' // 檢索：看牌組頂 N 張，選 M 張加入手牌
+  | 'lifeSetup'; // 開局：從手牌選 N 張覆蓋到生命區
+
+/**
+ * 等待玩家做選擇的待決事項。非 null 時遊戲暫停，UI 要先讓玩家選完才能繼續。
+ *
+ * 與 PendingRebuild 分開，是因為重構還帶著「打斷了抽牌、選完要補完」的額外狀態，
+ * 而這裡的選擇是獨立的、選完就結束。
+ */
 export interface PendingChoice {
+  kind: PendingChoiceKind;
   seat: Seat;
-  kind: 'search' | 'discard' | 'salvage';
   prompt: string;
+  /** 可以選的卡片 */
   candidates: CardInstance[];
+  /** 需要選幾張 */
   pick: number;
+  /** 已選中的 iid；累積到 pick 張才會結算 */
+  selected: number[];
+  /** 檢索專用：沒被選中的牌要去哪裡 */
+  rest?: 'discard' | 'deckTop';
 }
 
 /**

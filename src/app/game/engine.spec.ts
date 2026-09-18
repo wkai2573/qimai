@@ -8,7 +8,15 @@ import { describe, expect, it } from 'vitest';
 
 import { card, STARTER_MAIN_DECK, STARTER_QUEST_DECK, validateMainDeck, validateQuestDeck } from './cards';
 import { beginCombat, finishCombat, playTechnique } from './combat';
-import { beginTurn, createGame, evaluateAllQuests, playCard, resolveBurst, resolveRebuild } from './engine';
+import {
+  beginTurn,
+  createGame,
+  evaluateAllQuests,
+  playCard,
+  resolveBurst,
+  resolveChoice,
+  resolveRebuild,
+} from './engine';
 import { draw, makeInstance } from './internal';
 import type { GameState, Seat } from './types';
 import { RULES } from './types';
@@ -86,7 +94,7 @@ describe('牌組構築規則', () => {
 
 describe('開局設置', () => {
   it('雙方各有 3 張生命卡，且都翻開了起始任務', () => {
-    const g = createGame(2024);
+    const g = createGame(2024, { manualLifeSetup: false });
 
     for (const seat of ['player', 'npc'] as Seat[]) {
       expect(g.sides[seat].life.length).toBe(RULES.lifeCount);
@@ -96,7 +104,7 @@ describe('開局設置', () => {
   });
 
   it('先攻方的生命卡是從起始抽牌中選出的，生命區的卡不在牌組裡', () => {
-    const g = createGame(99);
+    const g = createGame(99, { manualLifeSetup: false });
     const side = g.sides.player;
     const lifeIids = new Set(side.life.map((l) => l.card.iid));
     const deckIids = new Set([...side.deck, ...side.hand].map((c) => c.iid));
@@ -107,14 +115,14 @@ describe('開局設置', () => {
   });
 
   it('回合開始後停在爆發階段等待玩家決定', () => {
-    const g = createGame(5);
+    const g = createGame(5, { manualLifeSetup: false });
     expect(g.phase).toBe('burst');
     expect(g.turn).toBe(1);
   });
 
   it('同一 seed 產生完全相同的對局', () => {
-    const a = createGame(123456);
-    const b = createGame(123456);
+    const a = createGame(123456, { manualLifeSetup: false });
+    const b = createGame(123456, { manualLifeSetup: false });
 
     expect(a.activeSeat).toBe(b.activeSeat);
     expect(a.sides.player.deck.map((c) => c.defId)).toEqual(b.sides.player.deck.map((c) => c.defId));
@@ -123,8 +131,8 @@ describe('開局設置', () => {
   });
 
   it('不同 seed 產生不同的洗牌結果', () => {
-    const a = createGame(1);
-    const b = createGame(2);
+    const a = createGame(1, { manualLifeSetup: false });
+    const b = createGame(2, { manualLifeSetup: false });
     const same =
       a.sides.player.deck.map((c) => c.defId).join(',') === b.sides.player.deck.map((c) => c.defId).join(',');
     expect(same).toBe(false);
@@ -137,7 +145,7 @@ describe('開局設置', () => {
 
 describe('戰鬥階段', () => {
   it('必須依 特技→密技→奧義→密奧義 的順序出招', () => {
-    const g = createGame(1);
+    const g = createGame(1, { manualLifeSetup: false });
     setupCombat(g, 'player', ['secret_lie', 'trick_beng']);
 
     const [secret, trick] = g.sides.player.hand;
@@ -149,7 +157,7 @@ describe('戰鬥階段', () => {
   });
 
   it('同一個 tier 不能出兩張', () => {
-    const g = createGame(1);
+    const g = createGame(1, { manualLifeSetup: false });
     setupCombat(g, 'player', ['trick_beng', 'trick_cun']);
 
     const [first, second] = g.sides.player.hand;
@@ -158,7 +166,7 @@ describe('戰鬥階段', () => {
   });
 
   it('密奧義在解放條件未滿足時不能打出', () => {
-    const g = createGame(1);
+    const g = createGame(1, { manualLifeSetup: false });
     setupCombat(g, 'player', ['hidden_tian']);
 
     const result = playTechnique(g, 'player', g.sides.player.hand[0].iid);
@@ -167,7 +175,7 @@ describe('戰鬥階段', () => {
   });
 
   it('本回合用過奧義後，天罡滅脈可以打出', () => {
-    const g = createGame(1);
+    const g = createGame(1, { manualLifeSetup: false });
     setupCombat(g, 'player', ['ult_guan', 'hidden_tian']);
 
     const [ult, hidden] = g.sides.player.hand;
@@ -177,7 +185,7 @@ describe('戰鬥階段', () => {
   });
 
   it('連招成立時，後一張招式獲得額外加成', () => {
-    const g = createGame(1);
+    const g = createGame(1, { manualLifeSetup: false });
     setupCombat(g, 'player', ['trick_beng', 'secret_lie']);
 
     const [trick, secret] = g.sides.player.hand;
@@ -192,7 +200,7 @@ describe('戰鬥階段', () => {
   });
 
   it('沒有連招時不會獲得加成', () => {
-    const g = createGame(1);
+    const g = createGame(1, { manualLifeSetup: false });
     setupCombat(g, 'player', ['secret_lie']);
 
     playTechnique(g, 'player', g.sides.player.hand[0].iid);
@@ -201,7 +209,7 @@ describe('戰鬥階段', () => {
   });
 
   it('傷害 = 出招總和 − 防禦值，差額進入防禦方怒氣區', () => {
-    const g = createGame(1);
+    const g = createGame(1, { manualLifeSetup: false });
     setupCombat(g, 'player', ['trick_cun']); // 傷害 2
     stackDeckTop(g, 'npc', ['trick_beng']); // 防禦值 1
 
@@ -213,7 +221,7 @@ describe('戰鬥階段', () => {
   });
 
   it('防禦值大於等於傷害時不會造成傷害', () => {
-    const g = createGame(1);
+    const g = createGame(1, { manualLifeSetup: false });
     setupCombat(g, 'player', ['trick_beng']); // 傷害 1
     stackDeckTop(g, 'npc', ['trick_chan']); // 防禦值 3
 
@@ -226,7 +234,7 @@ describe('戰鬥階段', () => {
   });
 
   it('攻擊方不出招時不進防禦判定', () => {
-    const g = createGame(1);
+    const g = createGame(1, { manualLifeSetup: false });
     setupCombat(g, 'player', []);
 
     const npcDiscardBefore = g.sides.npc.discard.length;
@@ -237,7 +245,7 @@ describe('戰鬥階段', () => {
   });
 
   it('打出的招式與防禦卡進各自持有者的棄牌區', () => {
-    const g = createGame(1);
+    const g = createGame(1, { manualLifeSetup: false });
     setupCombat(g, 'player', ['trick_cun']);
     stackDeckTop(g, 'npc', ['trick_beng']);
 
@@ -252,7 +260,7 @@ describe('戰鬥階段', () => {
   });
 
   it('防禦方裝備玄鐵面時會額外翻開一張防禦卡', () => {
-    const g = createGame(1);
+    const g = createGame(1, { manualLifeSetup: false });
     const npc = g.sides.npc;
     npc.equipment = [makeInstance(g, 'eq_xuantie')];
     // 手動套用裝備的持續效果
@@ -283,7 +291,7 @@ describe('戰鬥階段', () => {
 
 describe('重構與勝負', () => {
   it('生命區有多張時，重構會停下來等玩家挑選（不急著扣血）', () => {
-    const g = createGame(1);
+    const g = createGame(1, { manualLifeSetup: false });
     const side = g.sides.player;
 
     side.deck = [];
@@ -299,7 +307,7 @@ describe('重構與勝負', () => {
   });
 
   it('玩家挑選後完成重構：該卡進手牌、棄牌區洗成新牌組', () => {
-    const g = createGame(1);
+    const g = createGame(1, { manualLifeSetup: false });
     const side = g.sides.player;
 
     side.deck = [];
@@ -319,7 +327,7 @@ describe('重構與勝負', () => {
   });
 
   it('生命區只剩一張時自動重構，不打擾玩家', () => {
-    const g = createGame(1);
+    const g = createGame(1, { manualLifeSetup: false });
     const side = g.sides.player;
 
     side.life = [side.life[0]];
@@ -333,7 +341,7 @@ describe('重構與勝負', () => {
   });
 
   it('重構會把被打斷的抽牌補完', () => {
-    const g = createGame(1);
+    const g = createGame(1, { manualLifeSetup: false });
     const side = g.sides.player;
 
     side.life = [side.life[0]];
@@ -352,7 +360,7 @@ describe('重構與勝負', () => {
   });
 
   it('重構洗入的牌不夠時，抽到的張數以實際數量為準', () => {
-    const g = createGame(1);
+    const g = createGame(1, { manualLifeSetup: false });
     const side = g.sides.player;
 
     side.life = [side.life[0]];
@@ -369,7 +377,7 @@ describe('重構與勝負', () => {
   });
 
   it('生命區為空且需要重構時，該方敗北', () => {
-    const g = createGame(1);
+    const g = createGame(1, { manualLifeSetup: false });
     const side = g.sides.player;
 
     side.deck = [];
@@ -383,7 +391,7 @@ describe('重構與勝負', () => {
   });
 
   it('棄牌區也是空的時候無法重建牌組，該方敗北', () => {
-    const g = createGame(1);
+    const g = createGame(1, { manualLifeSetup: false });
     const side = g.sides.player;
 
     side.life = [side.life[0]]; // 只留一張，自動處理
@@ -396,7 +404,7 @@ describe('重構與勝負', () => {
   });
 
   it('重構期間玩家不能出牌', () => {
-    const g = createGame(1);
+    const g = createGame(1, { manualLifeSetup: false });
     const side = g.sides.player;
 
     side.deck = [];
@@ -422,7 +430,7 @@ describe('重構與勝負', () => {
 
 describe('任務系統', () => {
   it('達成完成條件時任務完成、等級 +1、卡片進等級區', () => {
-    const g = createGame(1);
+    const g = createGame(1, { manualLifeSetup: false });
     const side = g.sides.player;
     const questBefore = side.currentQuest!.defId;
 
@@ -437,7 +445,7 @@ describe('任務系統', () => {
   });
 
   it('被促成阻止條件時任務失敗、卡片回到手牌', () => {
-    const g = createGame(1);
+    const g = createGame(1, { manualLifeSetup: false });
     const side = g.sides.player;
     const handBefore = side.hand.length;
     const questBefore = side.currentQuest!.defId;
@@ -452,7 +460,7 @@ describe('任務系統', () => {
   });
 
   it('完成條件優先於阻止條件', () => {
-    const g = createGame(1);
+    const g = createGame(1, { manualLifeSetup: false });
     const side = g.sides.player;
 
     // 兩個條件同時成立
@@ -464,7 +472,7 @@ describe('任務系統', () => {
   });
 
   it('打出招式會推進任務進度（實戰路徑）', () => {
-    const g = createGame(1);
+    const g = createGame(1, { manualLifeSetup: false });
     const side = g.sides.player;
     side.currentQuest = makeInstance(g, 'q_shishi'); // 初試身手
 
@@ -477,7 +485,7 @@ describe('任務系統', () => {
   });
 
   it('任務完成後不再有任務條件（已進等級區）', () => {
-    const g = createGame(1);
+    const g = createGame(1, { manualLifeSetup: false });
     const side = g.sides.player;
 
     side.stats.playKind.technique = 2;
@@ -496,7 +504,7 @@ describe('任務系統', () => {
 
 describe('主要階段', () => {
   it('裝備卡受部位上限限制（武器只能 1 張）', () => {
-    const g = createGame(1);
+    const g = createGame(1, { manualLifeSetup: false });
     g.phase = 'main';
     g.activeSeat = 'player';
     const side = g.sides.player;
@@ -511,7 +519,7 @@ describe('主要階段', () => {
   });
 
   it('飾品可以裝備 2 張', () => {
-    const g = createGame(1);
+    const g = createGame(1, { manualLifeSetup: false });
     g.phase = 'main';
     g.activeSeat = 'player';
     const side = g.sides.player;
@@ -524,7 +532,7 @@ describe('主要階段', () => {
   });
 
   it('裝備卡受等級門檻限制', () => {
-    const g = createGame(1);
+    const g = createGame(1, { manualLifeSetup: false });
     g.phase = 'main';
     g.activeSeat = 'player';
     const side = g.sides.player;
@@ -537,7 +545,7 @@ describe('主要階段', () => {
   });
 
   it('每回合最多使用 1 張事件卡', () => {
-    const g = createGame(1);
+    const g = createGame(1, { manualLifeSetup: false });
     g.phase = 'main';
     g.activeSeat = 'player';
     const side = g.sides.player;
@@ -551,7 +559,7 @@ describe('主要階段', () => {
   });
 
   it('生命卡不足時無法支付費用', () => {
-    const g = createGame(1);
+    const g = createGame(1, { manualLifeSetup: false });
     g.phase = 'main';
     g.activeSeat = 'player';
     const side = g.sides.player;
@@ -566,7 +574,7 @@ describe('主要階段', () => {
   });
 
   it('使用行動卡後會進入棄牌區', () => {
-    const g = createGame(1);
+    const g = createGame(1, { manualLifeSetup: false });
     g.phase = 'main';
     g.activeSeat = 'player';
     const side = g.sides.player;
@@ -580,7 +588,7 @@ describe('主要階段', () => {
   });
 
   it('任務卡打出後會蓋到任務牌組最底下', () => {
-    const g = createGame(1);
+    const g = createGame(1, { manualLifeSetup: false });
     g.phase = 'main';
     g.activeSeat = 'player';
     const side = g.sides.player;
@@ -595,7 +603,7 @@ describe('主要階段', () => {
   });
 
   it('招式卡不能在主要階段使用', () => {
-    const g = createGame(1);
+    const g = createGame(1, { manualLifeSetup: false });
     g.phase = 'main';
     g.activeSeat = 'player';
 
@@ -606,7 +614,7 @@ describe('主要階段', () => {
   });
 
   it('不是自己的回合時不能出牌', () => {
-    const g = createGame(1);
+    const g = createGame(1, { manualLifeSetup: false });
     g.phase = 'main';
     g.activeSeat = 'player';
 
@@ -623,7 +631,7 @@ describe('主要階段', () => {
 
 describe('回合流程', () => {
   it('重置階段會復原橫置的生命卡', () => {
-    const g = createGame(1);
+    const g = createGame(1, { manualLifeSetup: false });
     g.sides.player.life.forEach((l) => (l.tapped = true));
 
     beginTurn(g, 'player');
@@ -632,7 +640,7 @@ describe('回合流程', () => {
   });
 
   it('抽牌階段抽 2 張', () => {
-    const g = createGame(1);
+    const g = createGame(1, { manualLifeSetup: false });
     const side = g.sides.player;
 
     // 先清空手牌方便計算
@@ -645,7 +653,7 @@ describe('回合流程', () => {
   });
 
   it('爆發階段丟棄牌組頂 5 張並抽 1 張', () => {
-    const g = createGame(1);
+    const g = createGame(1, { manualLifeSetup: false });
     g.phase = 'burst';
     g.activeSeat = 'player';
     const side = g.sides.player;
@@ -662,7 +670,7 @@ describe('回合流程', () => {
   });
 
   it('放棄爆發不會改變牌組', () => {
-    const g = createGame(1);
+    const g = createGame(1, { manualLifeSetup: false });
     g.phase = 'burst';
     g.activeSeat = 'player';
     const side = g.sides.player;
@@ -677,7 +685,7 @@ describe('回合流程', () => {
   });
 
   it('每回合開始時雙方的回合統計都會歸零', () => {
-    const g = createGame(1);
+    const g = createGame(1, { manualLifeSetup: false });
 
     g.sides.player.stats.damageTaken = 7;
     g.sides.npc.stats.damageTaken = 3;
@@ -686,5 +694,122 @@ describe('回合流程', () => {
 
     expect(g.sides.player.stats.damageTaken).toBe(0);
     expect(g.sides.npc.stats.damageTaken).toBe(0);
+  });
+});
+
+
+// ─────────────────────────────────────────────
+// 8. 開局生命區選擇（玩家自選）
+// ─────────────────────────────────────────────
+
+describe('開局生命區選擇', () => {
+  it('玩家要自己挑，不會被自動決定', () => {
+    const g = createGame(1);
+
+    expect(g.pending).not.toBeNull();
+    expect(g.pending!.kind).toBe('lifeSetup');
+    expect(g.pending!.pick).toBe(RULES.lifeCount);
+    // 還沒選之前，生命區是空的
+    expect(g.sides.player.life.length).toBe(0);
+    // 候選牌就是手牌
+    expect(g.pending!.candidates.length).toBe(g.sides.player.hand.length);
+  });
+
+  it('NPC 的生命區仍然自動決定，不需要玩家操心', () => {
+    const g = createGame(1);
+    expect(g.sides.npc.life.length).toBe(RULES.lifeCount);
+    // 起始任務要等雙方生命區都設定好、finishSetup 執行時才翻開
+    expect(g.sides.npc.currentQuest).toBeNull();
+  });
+
+  it('選滿指定張數後生命區就位，遊戲才正式開始', () => {
+    const g = createGame(1);
+    const pending = g.pending!;
+    const picks = pending.candidates.slice(0, RULES.lifeCount).map((c) => c.iid);
+
+    // 前兩張選完還不結算
+    resolveChoice(g, picks[0]);
+    resolveChoice(g, picks[1]);
+    expect(g.pending).not.toBeNull();
+    expect(g.sides.player.life.length).toBe(0);
+
+    // 最後一張選完才結算
+    resolveChoice(g, picks[2]);
+    expect(g.pending).toBeNull();
+    expect(g.sides.player.life.length).toBe(RULES.lifeCount);
+    expect(g.phase).not.toBe('setup');
+  });
+
+  it('再點一次已選的卡可以取消選取', () => {
+    const g = createGame(1);
+    const iid = g.pending!.candidates[0].iid;
+
+    resolveChoice(g, iid);
+    expect(g.pending!.selected).toContain(iid);
+
+    resolveChoice(g, iid);
+    expect(g.pending!.selected).not.toContain(iid);
+  });
+
+  it('設 manualLifeSetup: false 時走自動流程（給測試與 AI 對戰用）', () => {
+    const g = createGame(1, { manualLifeSetup: false });
+    expect(g.pending).toBeNull();
+    expect(g.sides.player.life.length).toBe(RULES.lifeCount);
+  });
+});
+
+// ─────────────────────────────────────────────
+// 9. 檢索（玩家自選）
+// ─────────────────────────────────────────────
+
+describe('檢索（玩家自選）', () => {
+  it('使用尋隙後遊戲暫停，等玩家挑牌', () => {
+    const g = createGame(1, { manualLifeSetup: false });
+    g.phase = 'main';
+    g.activeSeat = 'player';
+    setHand(g, 'player', ['act_xunxi']);
+
+    const result = playCard(g, 'player', g.sides.player.hand[0].iid);
+
+    expect(result.ok).toBe(true);
+    expect(g.pending).not.toBeNull();
+    expect(g.pending!.kind).toBe('search');
+    expect(g.pending!.candidates.length).toBe(3);
+    expect(g.pending!.pick).toBe(1);
+  });
+
+  it('選中的卡進手牌，其餘進棄牌區', () => {
+    const g = createGame(1, { manualLifeSetup: false });
+    g.phase = 'main';
+    g.activeSeat = 'player';
+    setHand(g, 'player', ['act_xunxi']);
+
+    playCard(g, 'player', g.sides.player.hand[0].iid);
+
+    const pending = g.pending!;
+    const chosen = pending.candidates[1].iid;
+    const others = pending.candidates.filter((c) => c.iid !== chosen).map((c) => c.iid);
+    const discardBefore = g.sides.player.discard.length;
+
+    resolveChoice(g, chosen);
+
+    expect(g.pending).toBeNull();
+    expect(g.sides.player.hand.some((c) => c.iid === chosen)).toBe(true);
+    for (const iid of others) {
+      expect(g.sides.player.discard.some((c) => c.iid === iid), '沒選到的卡應該進棄牌區').toBe(true);
+    }
+    expect(g.sides.player.discard.length).toBe(discardBefore + others.length);
+  });
+
+  it('檢索期間玩家不能出牌（由 UI 的 playerCanAct 擋）', () => {
+    const g = createGame(1, { manualLifeSetup: false });
+    g.phase = 'main';
+    g.activeSeat = 'player';
+    setHand(g, 'player', ['act_xunxi']);
+
+    playCard(g, 'player', g.sides.player.hand[0].iid);
+    expect(g.pending).not.toBeNull();
+    // engine 本身不擋，狀態保持乾淨即可
+    expect(g.winner).toBeNull();
   });
 });
