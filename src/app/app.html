@@ -1,0 +1,661 @@
+<div class="table-felt relative flex h-screen flex-col overflow-hidden text-slate-100">
+  <!-- ══════════ 頂欄 ══════════ -->
+  <header
+    class="z-30 flex shrink-0 flex-wrap items-center gap-1.5 border-b border-slate-800/80 bg-slate-950/85 px-2 py-1 backdrop-blur"
+  >
+    <span class="text-base font-black tracking-[0.2em] text-amber-300">氣脈</span>
+    <span class="tag tag--slate">第 {{ turn() }} 回合</span>
+
+    @if (activeSeat() === 'player') {
+      <span class="tag tag--emerald">你的回合</span>
+    } @else {
+      <span class="tag tag--rose">對手回合</span>
+    }
+
+    @if (npcThinking()) {
+      <span class="animate-pulse text-[11px] text-slate-400">對手思考中…</span>
+    }
+
+    <span class="ml-auto hidden font-mono text-[10px] text-slate-600 sm:inline">seed {{ store.state().seed }}</span>
+
+    <!-- 設定
+         外層包 flex 是必要的：inline-flex 的按鈕放在一般 block 容器裡會產生
+         一行基線間隙，讓這顆按鈕比旁邊的按鈕矮一截、看起來沒對齊。 -->
+    <div class="relative flex items-center">
+      <button
+        type="button"
+        class="btn btn--slate btn--sm"
+        [class.btn--amber]="showSettings()"
+        (click)="showSettings.set(!showSettings())"
+      >
+        ⚙ {{ speedLabel() }}
+      </button>
+
+      @if (showSettings()) {
+        <div class="popover anim-sheet absolute right-0 top-8 z-50 w-56 p-2.5">
+          <div class="mb-2 text-[10px] font-bold tracking-widest text-slate-500">對局節奏</div>
+          <div class="flex gap-1.5">
+            @for (opt of speedOptions; track opt.value) {
+              <button
+                type="button"
+                class="btn btn--sm flex-1"
+                [class.btn--amber]="npcSpeed() === opt.value"
+                [class.btn--ghost]="npcSpeed() !== opt.value"
+                (click)="setSpeed(opt.value)"
+              >
+                {{ opt.label }}
+              </button>
+            }
+          </div>
+          <p class="mt-2.5 text-[9px] leading-relaxed text-slate-500">
+            影響對手動作之間，以及戰鬥結算後的停頓時間。設定會自動記住。
+          </p>
+
+          <div class="mt-2.5 border-t border-slate-700/60 pt-2">
+            <button type="button" class="btn btn--ghost btn--sm w-full" (click)="store.restartSameSeed()">
+              重播同一牌局
+            </button>
+            <p class="mt-1 text-[9px] leading-relaxed text-slate-600">
+              用同一組亂數種子重開，牌序完全一樣（除錯用）。
+            </p>
+          </div>
+        </div>
+      }
+    </div>
+
+    <button type="button" class="btn btn--amber btn--sm" (click)="store.newGame()">新對局</button>
+    <button type="button" class="btn btn--slate btn--sm" title="遊戲規則" (click)="openRules()">？</button>
+  </header>
+
+  <!-- ══════════ 主區 ══════════ -->
+  <div class="grid min-h-0 flex-1 gap-2 p-2 lg:grid-cols-[212px_minmax(0,1fr)]">
+    <!-- 桌機：左側固定詳細面板 -->
+    <aside class="hidden min-h-0 lg:block">
+      <div class="flex h-full flex-col">
+        <div class="mb-1 shrink-0 text-[10px] font-bold tracking-widest text-slate-500">卡片資訊</div>
+        <div class="scroll-y min-h-0 flex-1 pr-0.5">
+          <app-card-detail
+            [inst]="selectedInst()"
+            [actionLabel]="selectedActionLabel()"
+            [actionEnabled]="selectedActionEnabled()"
+            (act)="useSelected()"
+          />
+        </div>
+      </div>
+    </aside>
+
+    <!-- 牌桌 -->
+    <section class="scroll-y flex min-h-0 flex-col gap-1 px-2">
+      <!-- 對手手牌 -->
+      <div class="flex min-h-[30px] shrink-0 items-start justify-center">
+        @for (c of npc().hand; track c.iid) {
+          <div
+            class="h-8 w-6 shrink-0 rounded border border-sky-500/40 bg-gradient-to-b from-sky-900 to-slate-950 shadow"
+            [style.marginLeft]="$index === 0 ? '0' : '-12px'"
+          ></div>
+        }
+      </div>
+
+      <!-- 對手場面 -->
+      <div
+        class="side-npc side-panel shrink-0 border border-rose-900/50 bg-rose-950/15 px-2 py-1.5"
+        [class.side-active]="activeSeat() === 'npc' && !winner()"
+      >
+        <div class="flex flex-wrap items-center gap-x-3 gap-y-1">
+          <div class="flex items-baseline gap-1">
+            <span class="text-[11px] font-bold text-rose-300">對手</span>
+            <span class="text-[10px] text-amber-300/80">Lv{{ npc().level }}</span>
+          </div>
+
+          <!-- 生命區＝血量：每重構一次少一張，歸零即敗北 -->
+          <div class="flex items-center gap-1">
+            <span class="shrink-0 text-[9px] tracking-wider text-slate-500">生命</span>
+            <button
+              type="button"
+              class="shrink-0 cursor-pointer text-[12px] font-bold tabular-nums underline decoration-dotted underline-offset-2"
+              [class]="npc().life.length <= 1 ? 'text-red-400' : 'text-rose-300'"
+              [title]="'生命區剩 ' + npc().life.length + ' 張卡，歸零即敗北。點擊查看內容'"
+              (click)="openPile('npc', 'life')"
+            >
+              {{ npc().life.length }}
+            </button>
+            @for (l of npc().life; track l.card.iid) {
+              <button
+                type="button"
+                class="life-card flex w-11 cursor-pointer flex-col items-center gap-0.5 rounded border border-rose-500/50 bg-rose-950/40 px-0.5 py-0.5 transition hover:border-rose-300"
+                [class.life-card--tapped]="l.tapped"
+                [title]="l.tapped ? '已橫置（本回合費用已使用，重置階段復原）' : '可橫置以支付費用'"
+                (click)="pickCard(l.card.iid)"
+              >
+                <div class="h-5 w-5 text-rose-300" [innerHTML]="artOf(l.card.defId)"></div>
+                <span class="w-full truncate text-center text-[7px] leading-tight text-rose-100">
+                  {{ nameOf(l.card.defId) }}
+                </span>
+              </button>
+            }
+            @if (npc().life.length === 0) {
+              <span class="text-[10px] font-bold text-red-400">已空</span>
+            }
+          </div>
+
+          <div class="flex items-center gap-1">
+            <span class="shrink-0 text-[9px] tracking-wider text-slate-500">裝備</span>
+            @for (e of npc().equipment; track e.iid) {
+              <button
+                type="button"
+                class="flex w-11 cursor-pointer flex-col items-center gap-0.5 rounded border border-sky-600/50 bg-sky-950/40 px-0.5 py-0.5 transition hover:border-sky-300"
+                (click)="pickCard(e.iid)"
+              >
+                <div class="h-5 w-5 text-sky-300" [innerHTML]="artOf(e.defId)"></div>
+                <span class="w-full truncate text-center text-[7px] leading-tight text-sky-100">
+                  {{ nameOf(e.defId) }}
+                </span>
+              </button>
+            }
+          </div>
+
+          @if (npc().currentQuest; as q) {
+            <button
+              type="button"
+              class="ml-auto flex cursor-pointer items-center gap-1.5 rounded-md border border-amber-600/50 bg-amber-950/30 px-1.5 py-0.5 transition hover:border-amber-300"
+              (click)="pickCard(q.iid)"
+            >
+              <div class="h-5 w-5 text-amber-300" [innerHTML]="artOf(q.defId)"></div>
+              <span class="text-[10px] font-bold text-amber-200">{{ nameOf(q.defId) }}</span>
+            </button>
+          }
+        </div>
+      </div>
+
+      <!-- 對手資源堆疊 -->
+      <div class="flex shrink-0 items-center justify-center gap-3">
+        <!-- 牌組：內容是隱藏資訊，不提供檢視 -->
+        <div
+          class="pile-stack pile-stack--deck"
+          [class.pile-stack--empty]="npc().deck.length === 0"
+          [title]="
+            npc().deck.length <= 5
+              ? '牌組快抽完了，抽完會觸發重構並扣掉一張生命卡'
+              : '牌組剩 ' + npc().deck.length + ' 張（內容為隱藏資訊）'
+          "
+        >
+          <span
+            class="text-sm font-bold tabular-nums"
+            [class]="npc().deck.length <= 5 ? 'text-amber-300' : 'text-sky-300'"
+            >{{ npc().deck.length }}</span
+          >
+          <span class="text-[9px] text-slate-500">牌組</span>
+        </div>
+
+        <button
+          type="button"
+          class="pile-stack pile-stack--anger pile-stack--clickable"
+          [class.pile-stack--empty]="npc().anger.length === 0"
+          title="點擊查看怒氣區內容"
+          (click)="openPile('npc', 'anger')"
+        >
+          <span class="text-sm font-bold tabular-nums text-rose-300">{{ npc().anger.length }}</span>
+          <span class="text-[9px] text-slate-500">怒氣</span>
+        </button>
+
+        <button
+          type="button"
+          class="pile-stack pile-stack--discard pile-stack--clickable"
+          [class.pile-stack--empty]="npc().discard.length === 0"
+          title="點擊查看棄牌區內容"
+          (click)="openPile('npc', 'discard')"
+        >
+          <span class="text-sm font-bold tabular-nums text-slate-300">{{ npc().discard.length }}</span>
+          <span class="text-[9px] text-slate-500">棄牌</span>
+        </button>
+      </div>
+
+      <div class="duel-line shrink-0"></div>
+
+      <!-- 戰鬥區（拖曳出招的放置目標） -->
+      <div
+        #combatZone
+        class="drop-target relative flex min-h-[84px] shrink-0 items-center justify-center rounded-lg transition-colors"
+        [class.drop-target--active]="dropActive()"
+      >
+        @if (combat(); as cb) {
+          <div
+            class="anim-combo relative flex w-full flex-wrap items-center justify-center gap-2 rounded-lg border border-orange-700/50 bg-orange-950/20 px-2 py-1"
+          >
+            <div class="flex items-end gap-1.5">
+              @for (p of cb.plays; track p.card.iid) {
+                <div class="anim-strike relative">
+                  <app-card-view [inst]="p.card" [playable]="false" [showcase]="true" size="sm" />
+                  <span
+                    class="absolute -top-1.5 -right-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-rose-600 text-[9px] font-black text-white shadow ring-1 ring-rose-300/40"
+                    >{{ p.damage }}</span
+                  >
+                </div>
+              }
+              @if (cb.plays.length === 0) {
+                <span class="text-[10px] tracking-widest text-slate-600">尚未出招</span>
+              }
+            </div>
+
+            @if (cb.defenseCards.length > 0) {
+              <div class="flex items-end gap-1.5">
+                @for (d of cb.defenseCards; track d.iid) {
+                  <div class="anim-flip">
+                    <app-card-view [inst]="d" [playable]="false" [showcase]="true" size="sm" />
+                  </div>
+                }
+                <span class="mb-5 rounded bg-sky-900/60 px-1.5 py-0.5 text-[11px] font-bold text-sky-200">
+                  🛡 {{ cb.defenseGuard }}
+                </span>
+              </div>
+            }
+
+            @if (cb.step === 'done') {
+              <span class="text-2xl font-black" [class]="cb.damage > 0 ? 'text-rose-400' : 'text-slate-500'">
+                {{ cb.damage }}
+              </span>
+            }
+          </div>
+        } @else {
+          <span class="text-[10px] tracking-[0.4em] text-slate-700">— 戰 鬥 區 —</span>
+        }
+      </div>
+
+      <div class="duel-line shrink-0"></div>
+
+      <!-- 我方資源堆疊 -->
+      <div class="flex shrink-0 items-center justify-center gap-3">
+        <div
+          class="pile-stack pile-stack--deck"
+          [class.pile-stack--empty]="player().deck.length === 0"
+          [title]="
+            player().deck.length <= 5
+              ? '牌組快抽完了，抽完會觸發重構並扣掉一張生命卡'
+              : '牌組剩 ' + player().deck.length + ' 張（內容為隱藏資訊）'
+          "
+        >
+          <span
+            class="text-sm font-bold tabular-nums"
+            [class]="player().deck.length <= 5 ? 'text-amber-300' : 'text-sky-300'"
+            >{{ player().deck.length }}</span
+          >
+          <span class="text-[9px] text-slate-500">牌組</span>
+        </div>
+
+        <button
+          type="button"
+          class="pile-stack pile-stack--anger pile-stack--clickable"
+          [class.pile-stack--empty]="player().anger.length === 0"
+          title="點擊查看怒氣區內容"
+          (click)="openPile('player', 'anger')"
+        >
+          <span class="text-sm font-bold tabular-nums text-rose-300">{{ player().anger.length }}</span>
+          <span class="text-[9px] text-slate-500">怒氣</span>
+        </button>
+
+        <button
+          type="button"
+          class="pile-stack pile-stack--discard pile-stack--clickable"
+          [class.pile-stack--empty]="player().discard.length === 0"
+          title="點擊查看棄牌區內容"
+          (click)="openPile('player', 'discard')"
+        >
+          <span class="text-sm font-bold tabular-nums text-slate-300">{{ player().discard.length }}</span>
+          <span class="text-[9px] text-slate-500">棄牌</span>
+        </button>
+      </div>
+
+      <!-- 我方場面 -->
+      <div
+        class="side-player side-panel shrink-0 border border-emerald-900/50 bg-emerald-950/15 px-2 py-1.5"
+        [class.side-active]="activeSeat() === 'player' && !winner()"
+      >
+        <div class="flex flex-wrap items-center gap-x-3 gap-y-1">
+          <div class="flex items-baseline gap-1">
+            <span class="text-[11px] font-bold text-emerald-300">你</span>
+            <span class="text-[10px] text-amber-300/80">Lv{{ player().level }}</span>
+          </div>
+
+          <!-- 生命區＝血量：每重構一次少一張，歸零即敗北 -->
+          <div class="flex items-center gap-1">
+            <span class="shrink-0 text-[9px] tracking-wider text-slate-500">生命</span>
+            <button
+              type="button"
+              class="shrink-0 cursor-pointer text-[12px] font-bold tabular-nums underline decoration-dotted underline-offset-2"
+              [class]="player().life.length <= 1 ? 'text-red-400' : 'text-emerald-300'"
+              [title]="'生命區剩 ' + player().life.length + ' 張卡，歸零即敗北。點擊查看內容'"
+              (click)="openPile('player', 'life')"
+            >
+              {{ player().life.length }}
+            </button>
+            @for (l of player().life; track l.card.iid) {
+              <button
+                type="button"
+                class="life-card flex w-11 cursor-pointer flex-col items-center gap-0.5 rounded border border-emerald-500/50 bg-emerald-950/40 px-0.5 py-0.5 transition hover:border-emerald-300"
+                [class.life-card--tapped]="l.tapped"
+                [title]="l.tapped ? '已橫置（本回合費用已使用，重置階段復原）' : '可橫置以支付費用'"
+                (click)="pickCard(l.card.iid)"
+              >
+                <div class="h-5 w-5 text-emerald-300" [innerHTML]="artOf(l.card.defId)"></div>
+                <span class="w-full truncate text-center text-[7px] leading-tight text-emerald-100">
+                  {{ nameOf(l.card.defId) }}
+                </span>
+              </button>
+            }
+            @if (player().life.length === 0) {
+              <span class="text-[10px] font-bold text-red-400">已空</span>
+            }
+          </div>
+
+          <div class="flex items-center gap-1">
+            <span class="shrink-0 text-[9px] tracking-wider text-slate-500">裝備</span>
+            @for (e of player().equipment; track e.iid) {
+              <button
+                type="button"
+                class="flex w-11 cursor-pointer flex-col items-center gap-0.5 rounded border border-sky-600/50 bg-sky-950/40 px-0.5 py-0.5 transition hover:border-sky-300"
+                (click)="pickCard(e.iid)"
+              >
+                <div class="h-5 w-5 text-sky-300" [innerHTML]="artOf(e.defId)"></div>
+                <span class="w-full truncate text-center text-[7px] leading-tight text-sky-100">
+                  {{ nameOf(e.defId) }}
+                </span>
+              </button>
+            }
+          </div>
+
+          @for (b of player().buffs; track b.id) {
+            <span class="tag tag--violet">{{ b.source }}</span>
+          }
+
+          @if (player().currentQuest; as q) {
+            <button
+              type="button"
+              class="ml-auto flex cursor-pointer items-center gap-1.5 rounded-md border border-amber-600/50 bg-amber-950/30 px-1.5 py-0.5 transition hover:border-amber-300"
+              (click)="pickCard(q.iid)"
+            >
+              <div class="h-5 w-5 text-amber-300" [innerHTML]="artOf(q.defId)"></div>
+              <span class="text-[10px] font-bold text-amber-200">{{ nameOf(q.defId) }}</span>
+            </button>
+          }
+        </div>
+      </div>
+
+      <!-- 我方手牌 -->
+      <div #handRow class="hand-row shrink-0">
+        @for (c of hand(); track c.iid; let i = $index) {
+          <div class="anim-deal" [style.marginLeft.px]="i === 0 ? 0 : handSpacing()">
+            <app-card-view
+              [inst]="c"
+              [playable]="true"
+              [selected]="selectedInst()?.iid === c.iid"
+              [draggable]="true"
+              [class.opacity-30]="drag()?.iid === c.iid && drag()?.active === true"
+              size="md"
+              (pick)="pickCard($event)"
+              (pointerDown)="onCardPointerDown($event, c.iid)"
+            />
+          </div>
+        }
+        @if (hand().length === 0) {
+          <span class="text-[11px] text-slate-700">手牌是空的</span>
+        }
+      </div>
+
+      <!-- 回合流程進度 -->
+      @if (phaseIndex() >= 0) {
+        <div class="phase-track panel shrink-0 px-3 py-1.5">
+          @for (p of turnPhases; track p; let i = $index) {
+            <div
+              class="phase-step"
+              [class.phase-step--done]="i < phaseIndex()"
+              [class.phase-step--active]="i === phaseIndex()"
+            >
+              <span class="phase-dot"></span>
+              <span class="phase-name">{{ phaseName(p) }}</span>
+            </div>
+            @if (i < turnPhases.length - 1) {
+              <span class="phase-line" [class.phase-line--done]="i < phaseIndex()"></span>
+            }
+          }
+        </div>
+      }
+
+      <!-- 控制列 -->
+      <div class="panel flex shrink-0 flex-col gap-1 px-2 py-1.5">
+        <div class="flex flex-wrap items-center justify-center gap-2">
+          @switch (phase()) {
+            @case ('burst') {
+              <button
+                type="button"
+                class="btn btn--fuchsia"
+                [disabled]="!store.playerCanAct()"
+                (click)="store.burst(true)"
+              >
+                爆發（丟 5 抽 1）
+              </button>
+              <button
+                type="button"
+                class="btn btn--slate"
+                [disabled]="!store.playerCanAct()"
+                (click)="store.burst(false)"
+              >
+                跳過
+              </button>
+            }
+
+            @case ('main') {
+              <button
+                type="button"
+                class="btn btn--orange"
+                [disabled]="!store.playerCanAct()"
+                (click)="store.enterCombatPhase()"
+              >
+                進入戰鬥階段
+              </button>
+              <button
+                type="button"
+                class="btn btn--slate"
+                [disabled]="!store.playerCanAct()"
+                (click)="store.endTurn()"
+              >
+                結束回合
+              </button>
+            }
+
+            @case ('combat') {
+              <button
+                type="button"
+                class="btn btn--rose"
+                [disabled]="!store.playerCanAct()"
+                (click)="store.endCombatPhase()"
+              >
+                結束戰鬥
+              </button>
+            }
+
+            @case ('ended') {
+              <span class="text-lg font-black" [class]="winner() === 'player' ? 'text-amber-300' : 'text-rose-400'">
+                {{ resultText() }}
+              </span>
+              <button type="button" class="btn btn--amber btn--lg" (click)="store.newGame()">再來一局</button>
+            }
+
+            @default {
+              <span class="text-[11px] text-slate-500">等待中…</span>
+            }
+          }
+        </div>
+
+        @if (phaseHint()) {
+          <p class="text-center text-[10px] leading-relaxed text-slate-500">{{ phaseHint() }}</p>
+        }
+      </div>
+    </section>
+  </div>
+
+  <!-- ══════════ 下方日誌 ══════════ -->
+  <footer class="shrink-0 border-t border-slate-800 bg-slate-950/85 px-2 py-1">
+    <div class="flex min-w-0 gap-2">
+      <span class="shrink-0 pt-0.5 text-[10px] font-bold tracking-widest text-slate-600">日誌</span>
+      <div class="scroll-y max-h-[56px] min-w-0 flex-1 pr-1">
+        @for (entry of logNewestFirst(); track $index) {
+          <p class="anim-log text-[10px] leading-snug" [class]="logToneClass(entry.tone)">
+            <span class="text-slate-700">[{{ entry.turn }}]</span> {{ entry.text }}
+          </p>
+        }
+      </div>
+    </div>
+  </footer>
+
+  <!-- ══════════ 窄螢幕：詳細資訊彈窗 ══════════ -->
+  @if (selectedInst()) {
+    <div
+      class="fixed inset-0 z-[90] flex items-end justify-center bg-slate-950/70 p-2 backdrop-blur-sm lg:hidden"
+      (click)="clearSelection()"
+    >
+      <div
+        class="popover anim-sheet scroll-y max-h-[76vh] w-full max-w-sm rounded-b-none p-3"
+        (click)="$event.stopPropagation()"
+      >
+        <div class="mb-2 flex items-center justify-between">
+          <span class="text-[10px] font-bold tracking-widest text-slate-500">卡片資訊</span>
+          <button type="button" class="btn btn--ghost btn--sm" (click)="clearSelection()">關閉</button>
+        </div>
+
+        <app-card-detail
+          [inst]="selectedInst()"
+          [actionLabel]="selectedActionLabel()"
+          [actionEnabled]="selectedActionEnabled()"
+          (act)="useSelected()"
+        />
+      </div>
+    </div>
+  }
+
+  <!-- ══════════ 拖曳中的幽靈卡 ══════════ -->
+  @if (drag(); as d) {
+    @if (d.active) {
+      @if (dragInst(); as inst) {
+        <div
+          class="drag-ghost pointer-events-none fixed z-[95]"
+          [style.left.px]="d.x - d.grabX"
+          [style.top.px]="d.y - d.grabY"
+        >
+          <app-card-view [inst]="inst" [playable]="false" [showcase]="true" size="md" />
+        </div>
+      }
+    }
+  }
+
+  <!-- ══════════ 遊戲規則 ══════════ -->
+  @if (showRules()) {
+    <div
+      class="fixed inset-0 z-[97] flex items-center justify-center bg-slate-950/88 p-3 backdrop-blur-sm"
+      (click)="closeRules()"
+    >
+      <div
+        class="popover anim-sheet flex max-h-[86vh] w-full max-w-2xl flex-col overflow-hidden"
+        (click)="$event.stopPropagation()"
+      >
+        <header class="flex shrink-0 items-center justify-between border-b border-slate-800 px-4 py-2.5">
+          <span class="text-base font-black tracking-[0.15em] text-amber-300">氣脈 · 遊戲規則</span>
+          <button type="button" class="btn btn--ghost btn--sm" (click)="closeRules()">關閉</button>
+        </header>
+
+        <div class="scroll-y flex-1 space-y-4 p-4">
+          @for (section of ruleSections; track section.title) {
+            <section>
+              <h3 class="mb-1.5 border-l-2 border-amber-500/60 pl-2 text-xs font-bold tracking-wider text-amber-300">
+                {{ section.title }}
+              </h3>
+              <ul class="space-y-1">
+                @for (item of section.items; track $index) {
+                  <li class="flex gap-2 text-[11px] leading-relaxed text-slate-300">
+                    <span class="mt-[6px] h-1 w-1 shrink-0 rounded-full bg-slate-600"></span>
+                    <span>{{ item }}</span>
+                  </li>
+                }
+              </ul>
+            </section>
+          }
+
+          <p class="border-t border-slate-800 pt-3 text-center text-[10px] text-slate-600">
+            隨時可以點右上角的「？」再打開這份說明
+          </p>
+        </div>
+      </div>
+    </div>
+  }
+
+  <!-- ══════════ 堆疊區檢視彈窗 ══════════ -->
+  @if (pileView(); as pv) {
+    <div
+      class="fixed inset-0 z-[96] flex items-center justify-center bg-slate-950/85 p-3 backdrop-blur-sm"
+      (click)="closePile()"
+    >
+      <div
+        class="popover anim-sheet flex max-h-[82vh] w-full max-w-3xl flex-col overflow-hidden"
+        (click)="$event.stopPropagation()"
+      >
+        <header class="flex shrink-0 items-center justify-between border-b border-slate-800 px-3 py-2">
+          <span class="text-sm font-bold text-slate-200">{{ pileTitle() }}</span>
+          <button type="button" class="btn btn--ghost btn--sm" (click)="closePile()">關閉</button>
+        </header>
+
+        <div class="scroll-y flex-1 p-3">
+          @if (pileHidden()) {
+            <p class="py-10 text-center text-xs leading-relaxed text-slate-600">
+              牌組內容是隱藏資訊<br />只能看到剩餘張數
+            </p>
+          } @else if (pileCards().length === 0) {
+            <p class="py-10 text-center text-xs text-slate-600">這裡目前是空的</p>
+          } @else {
+            <div class="flex flex-wrap justify-center gap-2">
+              @for (c of pileCards(); track c.iid) {
+                <div class="anim-deal">
+                  <app-card-view [inst]="c" [playable]="false" [showcase]="true" size="sm" />
+                </div>
+              }
+            </div>
+          }
+        </div>
+      </div>
+    </div>
+  }
+
+  <!-- ══════════ 重構（扣血）生命卡選擇 ══════════ -->
+  @if (pendingRebuild(); as pr) {
+    <div class="fixed inset-0 z-[98] flex items-center justify-center bg-slate-950/92 p-3 backdrop-blur">
+      <div class="popover popover--accent anim-sheet w-full max-w-lg p-4">
+        <h3 class="text-center text-base font-black tracking-wider text-fuchsia-300">牌組耗盡 · 重構</h3>
+        <p class="mt-1 text-center text-[11px] leading-relaxed text-slate-400">
+          選擇 1 張生命卡加入手牌<br />
+          棄牌區將洗勻成為新牌組
+        </p>
+
+        <div class="mt-3 flex flex-wrap justify-center gap-2">
+          @for (c of rebuildOptions(); track c.iid) {
+            <app-card-view [inst]="c" [playable]="true" size="md" (pick)="chooseLifeCard($event)" />
+          }
+        </div>
+
+        <p class="mt-3 text-center text-[10px] text-slate-500">
+          生命區剩 {{ rebuildOptions().length }} 張 · 歸零即敗北
+        </p>
+      </div>
+    </div>
+  }
+
+  <!-- ══════════ 效果飄字層 ══════════ -->
+  <div class="pointer-events-none fixed inset-0 z-[100]">
+    @for (p of popups(); track p.id) {
+      <div
+        class="anim-damage absolute left-1/2 -translate-x-1/2 drop-shadow-[0_2px_8px_rgba(0,0,0,0.9)]"
+        [class]="popupClass(p.kind)"
+        [style.top]="p.seat === 'npc' ? '16%' : '56%'"
+      >
+        {{ p.text }}
+      </div>
+    }
+  </div>
+</div>
