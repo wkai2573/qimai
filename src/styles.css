@@ -287,6 +287,71 @@ body {
   --tag-fg: #bae6fd;
 }
 
+/* ── 招式階級圈 ─────────────────────────────────────────
+   四格固定，亮起的數量代表階級：特技 1、密技 2、奧義 3、密奧義 4。
+   ─────────────────────────────────────────────────────── */
+
+.tier-pips {
+  position: absolute;
+  bottom: 3px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 2.5px;
+  padding: 1.5px 4px;
+  border-radius: 999px;
+  background: rgba(2, 6, 23, 0.78);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+}
+
+.tier-pip {
+  width: 5px;
+  height: 5px;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.28);
+  transition: background 0.2s ease;
+}
+
+.tier-pip--on {
+  background: var(--pip-color, #fbbf24);
+  box-shadow: 0 0 5px var(--pip-color, #fbbf24);
+}
+
+.tier-pips--trick { --pip-color: #fcd34d; }
+.tier-pips--secret { --pip-color: #fb7185; }
+.tier-pips--ultimate { --pip-color: #fb923c; }
+.tier-pips--hidden { --pip-color: #e879f9; }
+
+/* ── 卡片詳細浮層（hover） ───────────────────────────── */
+
+.card-tooltip {
+  position: fixed;
+  z-index: 99;
+  width: 266px;
+  /* 不可互動，否則滑過去會觸發卡片的 mouseleave 造成閃爍 */
+  pointer-events: none;
+  padding: 10px;
+  border-radius: 0.85rem;
+  /* 實心底 + 邊框：浮在牌桌上時要能清楚蓋掉底下的卡牌 */
+  border: 1px solid rgba(148, 163, 184, 0.38);
+  background: linear-gradient(180deg, rgba(15, 23, 42, 0.99), rgba(2, 6, 23, 0.99));
+  box-shadow:
+    0 18px 44px rgba(0, 0, 0, 0.85),
+    0 0 0 1px rgba(0, 0, 0, 0.5);
+  animation: tooltip-in 0.12s ease-out both;
+}
+
+@keyframes tooltip-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
 /* ── 回合流程進度條 ───────────────────────────────────── */
 
 .phase-track {
@@ -634,6 +699,9 @@ body {
 }
 .pile-stack--discard {
   border-color: rgba(148, 163, 184, 0.32);
+}
+.pile-stack--level {
+  border-color: rgba(250, 204, 21, 0.45);
 }
 
 /* 空的時候不該看起來還像一疊牌 */

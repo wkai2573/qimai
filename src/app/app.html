@@ -68,24 +68,9 @@
   </header>
 
   <!-- ══════════ 主區 ══════════ -->
-  <div class="grid min-h-0 flex-1 gap-2 p-2 lg:grid-cols-[212px_minmax(0,1fr)]">
-    <!-- 桌機：左側固定詳細面板 -->
-    <aside class="hidden min-h-0 lg:block">
-      <div class="flex h-full flex-col">
-        <div class="mb-1 shrink-0 text-[10px] font-bold tracking-widest text-slate-500">卡片資訊</div>
-        <div class="scroll-y min-h-0 flex-1 pr-0.5">
-          <app-card-detail
-            [inst]="selectedInst()"
-            [actionLabel]="selectedActionLabel()"
-            [actionEnabled]="selectedActionEnabled()"
-            (act)="useSelected()"
-          />
-        </div>
-      </div>
-    </aside>
-
+  <div class="flex min-h-0 flex-1 flex-col p-2">
     <!-- 牌桌 -->
-    <section class="scroll-y flex min-h-0 flex-col gap-1 px-2">
+    <section class="scroll-y flex min-h-0 flex-1 flex-col gap-1 px-2">
       <!-- 對手手牌 -->
       <div class="flex min-h-[30px] shrink-0 items-start justify-center">
         @for (c of npc().hand; track c.iid) {
@@ -125,7 +110,6 @@
                 class="life-card flex w-11 cursor-pointer flex-col items-center gap-0.5 rounded border border-rose-500/50 bg-rose-950/40 px-0.5 py-0.5 transition hover:border-rose-300"
                 [class.life-card--tapped]="l.tapped"
                 [title]="l.tapped ? '已橫置（本回合費用已使用，重置階段復原）' : '可橫置以支付費用'"
-                (click)="pickCard(l.card.iid)"
               >
                 <div class="h-5 w-5 text-rose-300" [innerHTML]="artOf(l.card.defId)"></div>
                 <span class="w-full truncate text-center text-[7px] leading-tight text-rose-100">
@@ -144,7 +128,6 @@
               <button
                 type="button"
                 class="flex w-11 cursor-pointer flex-col items-center gap-0.5 rounded border border-sky-600/50 bg-sky-950/40 px-0.5 py-0.5 transition hover:border-sky-300"
-                (click)="pickCard(e.iid)"
               >
                 <div class="h-5 w-5 text-sky-300" [innerHTML]="artOf(e.defId)"></div>
                 <span class="w-full truncate text-center text-[7px] leading-tight text-sky-100">
@@ -158,7 +141,6 @@
             <button
               type="button"
               class="ml-auto flex cursor-pointer items-center gap-1.5 rounded-md border border-amber-600/50 bg-amber-950/30 px-1.5 py-0.5 transition hover:border-amber-300"
-              (click)="pickCard(q.iid)"
             >
               <div class="h-5 w-5 text-amber-300" [innerHTML]="artOf(q.defId)"></div>
               <span class="text-[10px] font-bold text-amber-200">{{ nameOf(q.defId) }}</span>
@@ -208,6 +190,17 @@
           <span class="text-sm font-bold tabular-nums text-slate-300">{{ npc().discard.length }}</span>
           <span class="text-[9px] text-slate-500">棄牌</span>
         </button>
+
+        <button
+          type="button"
+          class="pile-stack pile-stack--level pile-stack--clickable"
+          [class.pile-stack--empty]="npc().levelZone.length === 0"
+          title="點擊查看對手已達成的任務"
+          (click)="openPile('npc', 'level')"
+        >
+          <span class="text-sm font-bold tabular-nums text-amber-300">Lv{{ npc().level }}</span>
+          <span class="text-[9px] text-slate-500">達成</span>
+        </button>
       </div>
 
       <div class="duel-line shrink-0"></div>
@@ -225,7 +218,7 @@
             <div class="flex items-end gap-1.5">
               @for (p of cb.plays; track p.card.iid) {
                 <div class="anim-strike relative">
-                  <app-card-view [inst]="p.card" [playable]="false" [showcase]="true" size="sm" />
+                  <app-card-view [inst]="p.card" [playable]="false" [showcase]="true" [tooltip]="true" size="sm" (hoverInfo)="onCardHover($event)" />
                   <span
                     class="absolute -top-1.5 -right-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-rose-600 text-[9px] font-black text-white shadow ring-1 ring-rose-300/40"
                     >{{ p.damage }}</span
@@ -241,7 +234,7 @@
               <div class="flex items-end gap-1.5">
                 @for (d of cb.defenseCards; track d.iid) {
                   <div class="anim-flip">
-                    <app-card-view [inst]="d" [playable]="false" [showcase]="true" size="sm" />
+                    <app-card-view [inst]="d" [playable]="false" [showcase]="true" [tooltip]="true" size="sm" (hoverInfo)="onCardHover($event)" />
                   </div>
                 }
                 <span class="mb-5 rounded bg-sky-900/60 px-1.5 py-0.5 text-[11px] font-bold text-sky-200">
@@ -303,6 +296,17 @@
           <span class="text-sm font-bold tabular-nums text-slate-300">{{ player().discard.length }}</span>
           <span class="text-[9px] text-slate-500">棄牌</span>
         </button>
+
+        <button
+          type="button"
+          class="pile-stack pile-stack--level pile-stack--clickable"
+          [class.pile-stack--empty]="player().levelZone.length === 0"
+          title="點擊查看你已達成的任務"
+          (click)="openPile('player', 'level')"
+        >
+          <span class="text-sm font-bold tabular-nums text-amber-300">Lv{{ player().level }}</span>
+          <span class="text-[9px] text-slate-500">達成</span>
+        </button>
       </div>
 
       <!-- 我方場面 -->
@@ -334,7 +338,6 @@
                 class="life-card flex w-11 cursor-pointer flex-col items-center gap-0.5 rounded border border-emerald-500/50 bg-emerald-950/40 px-0.5 py-0.5 transition hover:border-emerald-300"
                 [class.life-card--tapped]="l.tapped"
                 [title]="l.tapped ? '已橫置（本回合費用已使用，重置階段復原）' : '可橫置以支付費用'"
-                (click)="pickCard(l.card.iid)"
               >
                 <div class="h-5 w-5 text-emerald-300" [innerHTML]="artOf(l.card.defId)"></div>
                 <span class="w-full truncate text-center text-[7px] leading-tight text-emerald-100">
@@ -353,7 +356,6 @@
               <button
                 type="button"
                 class="flex w-11 cursor-pointer flex-col items-center gap-0.5 rounded border border-sky-600/50 bg-sky-950/40 px-0.5 py-0.5 transition hover:border-sky-300"
-                (click)="pickCard(e.iid)"
               >
                 <div class="h-5 w-5 text-sky-300" [innerHTML]="artOf(e.defId)"></div>
                 <span class="w-full truncate text-center text-[7px] leading-tight text-sky-100">
@@ -371,34 +373,12 @@
             <button
               type="button"
               class="ml-auto flex cursor-pointer items-center gap-1.5 rounded-md border border-amber-600/50 bg-amber-950/30 px-1.5 py-0.5 transition hover:border-amber-300"
-              (click)="pickCard(q.iid)"
             >
               <div class="h-5 w-5 text-amber-300" [innerHTML]="artOf(q.defId)"></div>
               <span class="text-[10px] font-bold text-amber-200">{{ nameOf(q.defId) }}</span>
             </button>
           }
         </div>
-      </div>
-
-      <!-- 我方手牌 -->
-      <div #handRow class="hand-row shrink-0">
-        @for (c of hand(); track c.iid; let i = $index) {
-          <div class="anim-deal" [style.marginLeft.px]="i === 0 ? 0 : handSpacing()">
-            <app-card-view
-              [inst]="c"
-              [playable]="true"
-              [selected]="selectedInst()?.iid === c.iid"
-              [draggable]="true"
-              [class.opacity-30]="drag()?.iid === c.iid && drag()?.active === true"
-              size="md"
-              (pick)="pickCard($event)"
-              (pointerDown)="onCardPointerDown($event, c.iid)"
-            />
-          </div>
-        }
-        @if (hand().length === 0) {
-          <span class="text-[11px] text-slate-700">手牌是空的</span>
-        }
       </div>
 
       <!-- 回合流程進度 -->
@@ -431,7 +411,7 @@
                 [disabled]="!store.playerCanAct()"
                 (click)="store.burst(true)"
               >
-                爆發（丟 5 抽 1）
+                爆發（丟 {{ burstMill }} 抽 1）
               </button>
               <button
                 type="button"
@@ -490,6 +470,28 @@
           <p class="text-center text-[10px] leading-relaxed text-slate-500">{{ phaseHint() }}</p>
         }
       </div>
+
+      <!-- 我方手牌 -->
+      <div #handRow class="hand-row shrink-0">
+        @for (c of hand(); track c.iid; let i = $index) {
+          <div class="anim-deal" [style.marginLeft.px]="i === 0 ? 0 : handSpacing()">
+            <app-card-view
+              [inst]="c"
+              [playable]="true"
+              [draggable]="true"
+              [tooltip]="true"
+              [class.opacity-30]="drag()?.iid === c.iid && drag()?.active === true"
+              size="md"
+              (pick)="executeCard($event)"
+              (pointerDown)="onCardPointerDown($event, c.iid)"
+              (hoverInfo)="onCardHover($event)"
+            />
+          </div>
+        }
+        @if (hand().length === 0) {
+          <span class="text-[11px] text-slate-700">手牌是空的</span>
+        }
+      </div>
     </section>
   </div>
 
@@ -507,30 +509,6 @@
     </div>
   </footer>
 
-  <!-- ══════════ 窄螢幕：詳細資訊彈窗 ══════════ -->
-  @if (selectedInst()) {
-    <div
-      class="fixed inset-0 z-[90] flex items-end justify-center bg-slate-950/70 p-2 backdrop-blur-sm lg:hidden"
-      (click)="clearSelection()"
-    >
-      <div
-        class="popover anim-sheet scroll-y max-h-[76vh] w-full max-w-sm rounded-b-none p-3"
-        (click)="$event.stopPropagation()"
-      >
-        <div class="mb-2 flex items-center justify-between">
-          <span class="text-[10px] font-bold tracking-widest text-slate-500">卡片資訊</span>
-          <button type="button" class="btn btn--ghost btn--sm" (click)="clearSelection()">關閉</button>
-        </div>
-
-        <app-card-detail
-          [inst]="selectedInst()"
-          [actionLabel]="selectedActionLabel()"
-          [actionEnabled]="selectedActionEnabled()"
-          (act)="useSelected()"
-        />
-      </div>
-    </div>
-  }
 
   <!-- ══════════ 拖曳中的幽靈卡 ══════════ -->
   @if (drag(); as d) {
@@ -613,12 +591,55 @@
             <div class="flex flex-wrap justify-center gap-2">
               @for (c of pileCards(); track c.iid) {
                 <div class="anim-deal">
-                  <app-card-view [inst]="c" [playable]="false" [showcase]="true" size="sm" />
+                  <app-card-view
+                    [inst]="c"
+                    [playable]="false"
+                    [showcase]="true"
+                    [tooltip]="true"
+                    size="sm"
+                    (hoverInfo)="onCardHover($event)"
+                  />
                 </div>
               }
             </div>
           }
         </div>
+      </div>
+    </div>
+  }
+
+  <!-- ══════════ 通用選擇（開局生命區、檢索） ══════════ -->
+  @if (pendingChoice(); as pc) {
+    <div class="fixed inset-0 z-[98] flex items-center justify-center bg-slate-950/92 p-3 backdrop-blur">
+      <div class="popover popover--accent anim-sheet flex max-h-[86vh] w-full max-w-2xl flex-col p-4">
+        <h3 class="text-center text-base font-black tracking-wider text-amber-300">{{ pc.prompt }}</h3>
+        <p class="mt-1 text-center text-[11px] text-slate-400">
+          已選 <b class="text-amber-300">{{ pc.selected.length }}</b> / {{ pc.pick }} 張
+        </p>
+
+        <div class="scroll-y mt-3 flex flex-1 flex-wrap justify-center gap-2">
+          @for (c of choiceCandidates(); track c.iid) {
+            <div class="anim-deal">
+              <app-card-view
+                [inst]="c"
+                [playable]="true"
+                [selected]="choiceSelected().has(c.iid)"
+                [tooltip]="true"
+                size="md"
+                (pick)="chooseCard($event)"
+                (hoverInfo)="onCardHover($event)"
+              />
+            </div>
+          }
+        </div>
+
+        @if (pc.kind === 'search') {
+          <p class="mt-2 text-center text-[10px] text-slate-500">沒選到的卡會進入棄牌區</p>
+        } @else {
+          <p class="mt-2 text-center text-[10px] text-slate-500">
+            這 3 張就是你的血量，也是支付費用的來源
+          </p>
+        }
       </div>
     </div>
   }
@@ -635,7 +656,14 @@
 
         <div class="mt-3 flex flex-wrap justify-center gap-2">
           @for (c of rebuildOptions(); track c.iid) {
-            <app-card-view [inst]="c" [playable]="true" size="md" (pick)="chooseLifeCard($event)" />
+            <app-card-view
+              [inst]="c"
+              [playable]="true"
+              [tooltip]="true"
+              size="md"
+              (pick)="chooseLifeCard($event)"
+              (hoverInfo)="onCardHover($event)"
+            />
           }
         </div>
 
@@ -643,6 +671,13 @@
           生命區剩 {{ rebuildOptions().length }} 張 · 歸零即敗北
         </p>
       </div>
+    </div>
+  }
+
+  <!-- ══════════ 卡片詳細浮層（滑鼠移入時顯示） ══════════ -->
+  @if (tooltipCard(); as tt) {
+    <div class="card-tooltip" [style.left.px]="tt.x" [style.top.px]="tt.y">
+      <app-card-detail [inst]="tt.inst" />
     </div>
   }
 

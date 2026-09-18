@@ -29,35 +29,17 @@ describe('App', () => {
     expect(text).toContain('日誌');
   });
 
-  it('詳細面板一開始顯示提示文字', async () => {
-    const fixture = TestBed.createComponent(App);
-    await fixture.whenStable();
-    const detail = (fixture.nativeElement as HTMLElement).querySelector('app-card-detail');
 
-    expect(detail).toBeTruthy();
-    expect(detail?.textContent).toContain('點擊任何一張卡');
-  });
-
-  it('點擊手牌後，詳細面板會顯示該卡的完整資訊', async () => {
+  it('不再有左側固定資訊面板（卡片資訊改由 hover 浮層提供）', async () => {
     const fixture = TestBed.createComponent(App);
     await fixture.whenStable();
 
     const el = fixture.nativeElement as HTMLElement;
-    const cardButton = el.querySelector('app-card-view button') as HTMLButtonElement | null;
-    expect(cardButton, '手牌上應該有可點的卡').toBeTruthy();
 
-    cardButton!.click();
-    fixture.detectChanges();
-    await fixture.whenStable();
-
-    const detail = el.querySelector('app-card-detail');
-    const text = detail?.textContent ?? '';
-
-    // 面板應該從提示狀態變成顯示數值欄位
-    expect(text).not.toContain('點擊任何一張卡');
-    expect(text).toContain('費用');
-    expect(text).toContain('傷害');
-    expect(text).toContain('防禦');
+    // 桌面版的側邊面板已經移除
+    expect(el.querySelector('aside'), '不該再有側邊面板').toBeNull();
+    // 而 hover 浮層在未移入時不該存在
+    expect(el.querySelector('.card-tooltip'), '未移入時不該有浮層').toBeNull();
   });
 
   it('回合流程進度條涵蓋所有階段（開局與結束除外）', () => {
@@ -71,22 +53,77 @@ describe('App', () => {
     expect(missing).toEqual([]);
   });
 
-  it('回合流程進度條會渲染出來，並標出目前階段', async () => {
+  it('開局要玩家自選生命卡，選完才進入回合流程', async () => {
     const fixture = TestBed.createComponent(App);
     await fixture.whenStable();
 
     const el = fixture.nativeElement as HTMLElement;
+
+    // 還沒進入回合，不該有進度條
+    expect(el.querySelector('.phase-track'), '開局時不該有進度條').toBeNull();
+
+    // 選擇對話框應該出現
+    expect(el.textContent).toContain('生命區');
+
+    // 注意：要限定在對話框內查詢，否則會抓到下方手牌區的卡片
+    const dialog = el.querySelector('.popover--accent');
+    expect(dialog, '應該有選擇對話框').toBeTruthy();
+
+    // 點 3 張卡完成開局（選中的卡不會消失，所以固定點前 3 個）
+    for (let i = 0; i < 3; i++) {
+      const button = dialog!.querySelectorAll('app-card-view button')[i] as HTMLButtonElement | undefined;
+      expect(button, `第 ${i + 1} 張候選卡應該存在`).toBeTruthy();
+      button!.click();
+      fixture.detectChanges();
+    }
+    await fixture.whenStable();
+
     const track = el.querySelector('.phase-track');
-    expect(track, '應該有流程進度條').toBeTruthy();
+    expect(track, '選完生命卡後應該出現進度條').toBeTruthy();
 
     const text = track?.textContent ?? '';
     for (const name of ['重置', '抽牌', '主要', '戰鬥']) {
       expect(text).toContain(name);
     }
 
-    // 開局後停在爆發階段
+    // 開局完成後停在爆發階段
     const active = track?.querySelector('.phase-step--active');
     expect(active?.textContent).toContain('爆發');
+  });
+
+  it('滑鼠移入卡片會顯示詳細資訊浮層，移出後消失', async () => {
+    const fixture = TestBed.createComponent(App);
+    await fixture.whenStable();
+
+    const el = fixture.nativeElement as HTMLElement;
+
+    // 開局先選完生命卡才能進到正常對局
+    const setupDialog = el.querySelector('.popover--accent');
+    for (let i = 0; i < 3; i++) {
+      (setupDialog!.querySelectorAll('app-card-view button')[i] as HTMLButtonElement).click();
+      fixture.detectChanges();
+    }
+    await fixture.whenStable();
+
+    // 一開始不該有浮層
+    expect(el.querySelector('.card-tooltip'), '未移入時不該有浮層').toBeNull();
+
+    // 移入手牌第一張
+    const card = el.querySelector('app-card-view button') as HTMLButtonElement;
+    expect(card, '應該有手牌').toBeTruthy();
+    card.dispatchEvent(new MouseEvent('mouseenter'));
+    fixture.detectChanges();
+
+    const tooltip = el.querySelector('.card-tooltip');
+    expect(tooltip, '移入卡片應該顯示浮層').toBeTruthy();
+    // 浮層要顯示完整資訊，而不只是卡名
+    expect(tooltip?.textContent).toContain('費用');
+    expect(tooltip?.textContent).toContain('防禦');
+
+    // 移出後消失
+    card.dispatchEvent(new MouseEvent('mouseleave'));
+    fixture.detectChanges();
+    expect(el.querySelector('.card-tooltip'), '移出後浮層應該消失').toBeNull();
   });
 
   it('點「？」按鈕會開啟規則說明', async () => {

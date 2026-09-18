@@ -136,6 +136,22 @@ export function payLifeCost(state: GameState, seat: Seat, n: number): boolean {
   return true;
 }
 
+/**
+ * 支付怒氣費用：捨棄怒氣區最上面 N 張卡，放進棄牌區。
+ * 回傳是否支付成功。這是「把累積的怒氣換成力量」的機制。
+ */
+export function payAngerCost(state: GameState, seat: Seat, n: number): boolean {
+  const side = state.sides[seat];
+  if (side.anger.length < n) return false;
+
+  for (let i = 0; i < n; i++) {
+    const c = side.anger.pop();
+    if (!c) break;
+    side.discard.push(c);
+  }
+  return true;
+}
+
 /** 重置階段：把所有橫置的生命卡復原 */
 export function readyAllLife(state: GameState, seat: Seat): void {
   for (const l of state.sides[seat].life) l.tapped = false;

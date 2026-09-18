@@ -3,7 +3,7 @@ import { DomSanitizer } from '@angular/platform-browser';
 
 import { CARD_BACK, cardArt } from './card-art';
 import { card } from './game/cards';
-import type { CardInstance } from './game/types';
+import { TECHNIQUE_LABEL, TECHNIQUE_ORDER, type CardInstance } from './game/types';
 
 export type CardSize = 'sm' | 'md' | 'lg';
 
@@ -40,6 +40,8 @@ const SIZE_CLASS: Record<CardSize, string> = {
         [class.card-draggable]="draggable() && playable() && !showcase()"
         [disabled]="!playable() || showcase()"
         (pointerdown)="onPointerDown($event)"
+        (mouseenter)="onMouseEnter($event)"
+        (mouseleave)="onMouseLeave()"
         (click)="pick.emit(inst().iid)"
       >
         <!-- 卡名 -->
@@ -47,10 +49,19 @@ const SIZE_CLASS: Record<CardSize, string> = {
 
         <!-- 卡圖 -->
         <div
-          class="card-art mx-1.5 mt-1 mb-1.5 flex flex-1 items-center justify-center overflow-hidden rounded"
+          class="card-art relative mx-1.5 mt-1 mb-1.5 flex flex-1 items-center justify-center overflow-hidden rounded"
           [class]="artPlate()"
         >
           <div class="h-[78%] w-[78%] transition-transform duration-300 group-hover:scale-110" [innerHTML]="artHtml()"></div>
+
+          <!-- 招式階級：亮起的圈數 = 特技1／密技2／奧義3／密奧義4 -->
+          @if (tierLevel() > 0) {
+            <div class="tier-pips" [class]="tierPipClass()" [title]="tierTitle()">
+              @for (n of PIP_STEPS; track n) {
+                <span class="tier-pip" [class.tier-pip--on]="n <= tierLevel()"></span>
+              }
+            </div>
+          }
         </div>
 
         @if (exhausted()) {
@@ -72,9 +83,13 @@ export class CardViewComponent {
   readonly showcase = input(false);
   /** 允許拖曳出招（只有手牌會開啟） */
   readonly draggable = input(false);
+  /** 滑鼠移入時回報位置，由外層顯示詳細資訊浮層 */
+  readonly tooltip = input(false);
   readonly size = input<CardSize>('md');
 
   readonly pick = output<number>();
+  /** hover 狀態變化；null 表示移出 */
+  readonly hoverInfo = output<{ iid: number; rect: DOMRect } | null>();
   /** 指標按下：由父層接手拖曳生命週期（移動與放開都在 document 上追蹤） */
   readonly pointerDown = output<PointerEvent>();
 
@@ -83,7 +98,44 @@ export class CardViewComponent {
     this.pointerDown.emit(ev);
   }
 
+  onMouseEnter(ev: MouseEvent): void {
+    if (!this.tooltip()) return;
+
+    const rect = (ev.currentTarget as HTMLElement).getBoundingClientRect();
+    this.hoverInfo.emit({ iid: this.inst().iid, rect });
+  }
+
+  onMouseLeave(): void {
+    if (!this.tooltip()) return;
+    this.hoverInfo.emit(null);
+  }
+
   readonly def = computed(() => card(this.inst().defId));
+
+  /** 圈圈的固定四格（用常數避免模板每次重建陣列） */
+  readonly PIP_STEPS = [1, 2, 3, 4] as const;
+
+  /**
+   * 招式的階級強度：特技 1、密技 2、奧義 3、密奧義 4。
+   * 非招式卡回傳 0（不顯示圈圈）。
+   */
+  readonly tierLevel = computed(() => {
+    const d = this.def();
+    if (d.kind !== 'technique' || !d.tier) return 0;
+    return TECHNIQUE_ORDER.indexOf(d.tier) + 1;
+  });
+
+  /** 圈圈的顏色依階級區分 */
+  readonly tierPipClass = computed(() => {
+    const tier = this.def().tier;
+    if (!tier) return '';
+    return `tier-pips--${tier}`;
+  });
+
+  readonly tierTitle = computed(() => {
+    const d = this.def();
+    return d.tier ? `${TECHNIQUE_LABEL[d.tier]}（第 ${this.tierLevel()} 階）` : '';
+  });
 
   readonly artHtml = computed(() => this.sanitizer.bypassSecurityTrustHtml(cardArt(this.inst().defId)));
   readonly backHtml = computed(() => this.sanitizer.bypassSecurityTrustHtml(CARD_BACK));
