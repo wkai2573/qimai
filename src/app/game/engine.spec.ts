@@ -484,6 +484,24 @@ describe('任務系統', () => {
     expect(side.level).toBe(1);
   });
 
+  it('完成全部任務不會獲勝，只是等級封頂', () => {
+    const g = createGame(1, { manualLifeSetup: false });
+    const side = g.sides.player;
+
+    // 把等級區塞滿 5 張，模擬「全部任務完成」
+    side.levelZone = ['q_shishi', 'q_lianji', 'q_xushi', 'q_nuqi', 'q_dacheng'].map((id) =>
+      makeInstance(g, id),
+    );
+    side.level = RULES.questDeckSize;
+    side.currentQuest = null;
+
+    evaluateAllQuests(g);
+
+    // 唯一的勝負條件是生命區歸零，任務完成只提升等級
+    expect(g.winner, '完成全部任務不該直接獲勝').toBeNull();
+    expect(side.level).toBe(RULES.questDeckSize);
+  });
+
   it('任務完成後不再有任務條件（已進等級區）', () => {
     const g = createGame(1, { manualLifeSetup: false });
     const side = g.sides.player;

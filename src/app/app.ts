@@ -40,6 +40,9 @@ function markRulesSeen(): void {
   }
 }
 
+/** 可放置的區域：招式卡放戰鬥區，其他卡放行動區 */
+type DropZone = 'combat' | 'action' | null;
+
 interface DragState {
   iid: number;
   pointerId: number;
@@ -54,6 +57,8 @@ interface DragState {
   y: number;
   /** 是否已進入拖曳狀態 */
   active: boolean;
+  /** 這張卡現在可不可以出（決定幽靈卡要不要顯示「費用不足」） */
+  playable: boolean;
 }
 
 @Component({
@@ -154,8 +159,11 @@ export class App {
   /** 手牌列容器，用來量測可用寬度 */
   readonly handRow = viewChild<ElementRef<HTMLElement>>('handRow');
 
-  /** 戰鬥區，拖曳時的放置目標 */
+  /** 戰鬥區（招式卡） */
   readonly combatZone = viewChild<ElementRef<HTMLElement>>('combatZone');
+
+  /** 行動區（裝備／行動／事件／任務卡） */
+  readonly actionZone = viewChild<ElementRef<HTMLElement>>('actionZone');
 
   /**
    * 每張手牌之間的間距（px）。
@@ -169,8 +177,8 @@ export class App {
   /** 目前的拖曳狀態，null 表示沒有在拖 */
   readonly drag = signal<DragState | null>(null);
 
-  /** 指標是否停在放置目標上（戰鬥區高亮用） */
-  readonly dropActive = signal(false);
+  /** 指標目前停在哪個放置區（null = 不在任何區上） */
+  readonly dropZone = signal<DropZone>(null);
 
   /** 被拖曳中的那張卡（幽靈卡顯示用） */
   readonly dragInst = computed<CardInstance | null>(() => {
@@ -311,7 +319,7 @@ export class App {
   onCardPointerDown(ev: PointerEvent, iid: number): void {
     this.ignoreNextClick = false;
 
-    if (!this.store.playerCanAct() || !this.store.canPlay(iid)) return;
+    if (!this.store.playerCanAct()) return;
 
     const button = (ev.target as HTMLElement).closest('button');
     const rect = button?.getBoundingClientRect();
@@ -327,6 +335,8 @@ export class App {
       x: ev.clientX,
       y: ev.clientY,
       active: false,
+      // 即使出不起也允許拖曳，這樣才能顯示「費用不足」而不是毫無反應
+      playable: this.store.canPlay(iid),
     });
   }
 
@@ -338,26 +348,54 @@ export class App {
 
     this.drag.set({ ...d, x: ev.clientX, y: ev.clientY, active });
 
-    if (active) {
-      this.dropActive.set(this.isOverCombatZone(ev.clientX, ev.clientY));
-    }
+    if (!active) return;
+
+    // 只有「這張卡該去的那一區」才會亮起來；拖錯地方不會有任何回饋
+    const target = this.zoneFor(d.iid);
+    this.dropZone.set(target && this.isOverZone(target, ev.clientX, ev.clientY) ? target : null);
   }
 
   onPointerUp(ev: PointerEvent): void {
     const d = this.drag();
     if (!d || ev.pointerId !== d.pointerId) return;
 
-    const dropped = d.active && this.isOverCombatZone(ev.clientX, ev.clientY);
+    const zone = d.active ? this.dropZone() : null;
 
     // 拖曳過的話，等等那個補發的 click 要忽略
     if (d.active) this.ignoreNextClick = true;
 
     this.drag.set(null);
-    this.dropActive.set(false);
+    this.dropZone.set(null);
 
-    if (dropped) {
+    // 放對區域「而且」出得起，才真的執行
+    if (zone && d.playable) {
       this.execute(d.iid);
     }
+  }
+
+  /**
+   * 這張卡應該放到哪一區。
+   * 招式卡走戰鬥區、其他卡走行動區；階段不對時回傳 null，拖了也不會有反應。
+   */
+  private zoneFor(iid: number): Exclude<DropZone, null> | null {
+    const inst = this.findCard(iid);
+    if (!inst) return null;
+
+    const isTechnique = card(inst.defId).kind === 'technique';
+    const phase = this.store.phase();
+
+    if (phase === 'combat') return isTechnique ? 'combat' : null;
+    if (phase === 'main') return isTechnique ? null : 'action';
+
+    return null;
+  }
+
+  /** 指標是否落在指定的放置區內（判定範圍略微外擴，讓拖放好操作） */
+  private isOverZone(zone: Exclude<DropZone, null>, x: number, y: number): boolean {
+    const el = (zone === 'combat' ? this.combatZone() : this.actionZone())?.nativeElement;
+    if (!el) return false;
+
+    return isInsideDropZone(x, y, el.getBoundingClientRect());
   }
 
   /** 依目前階段決定這張卡要「出招」還是「使用」 */
@@ -369,13 +407,6 @@ export class App {
     }
   }
 
-  /** 指標是否落在戰鬥區內（判定範圍略微外擴，讓拖放好操作） */
-  private isOverCombatZone(x: number, y: number): boolean {
-    const el = this.combatZone()?.nativeElement;
-    if (!el) return false;
-
-    return isInsideDropZone(x, y, el.getBoundingClientRect());
-  }
 
   // ─────────────────────────────────────────────
   // 堆疊區檢視（牌組／怒氣／棄牌／生命）
