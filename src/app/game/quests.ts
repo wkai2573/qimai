@@ -13,7 +13,6 @@
 import { CARD_DEFS, card } from './cards';
 import { endGame, log, nameOf } from './internal';
 import type { GameState, QuestCondition, Seat, TechniqueTier } from './types';
-import { RULES } from './types';
 
 /** 把連招序列轉成可比較的 key */
 export function comboKey(sequence: readonly TechniqueTier[]): string {
@@ -146,13 +145,7 @@ function completeQuest(state: GameState, seat: Seat): void {
     'quest',
   );
 
-  // 全部任務完成 = 氣脈大成，直接獲勝
-  if (side.levelZone.length >= RULES.questDeckSize) {
-    log(state, seat, `${side.seat === 'player' ? '你' : '對手'}完成了全部任務，氣脈大成！`, 'quest');
-    endGame(state, seat);
-    return;
-  }
-
+  // 完成全部任務只是等級封頂，不再是勝利條件——勝負只取決於生命區
   revealNextQuest(state, seat);
 }
 

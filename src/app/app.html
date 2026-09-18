@@ -211,12 +211,14 @@
 
       <div class="duel-line shrink-0"></div>
 
-      <!-- 戰鬥區（拖曳出招的放置目標） -->
-      <div
-        #combatZone
-        class="drop-target relative flex min-h-[84px] shrink-0 items-center justify-center rounded-lg transition-colors"
-        [class.drop-target--active]="dropActive()"
-      >
+      <!-- 放置區：左邊戰鬥區（招式卡），右邊行動區（其他卡片） -->
+      <div class="flex min-h-[84px] shrink-0 gap-2">
+        <!-- 戰鬥區：招式卡拖到這裡出招 -->
+        <div
+          #combatZone
+          class="drop-zone drop-zone--combat relative flex flex-1 items-center justify-center rounded-lg transition-colors"
+          [class.drop-zone--active]="dropZone() === 'combat'"
+        >
         @if (combat(); as cb) {
           <div
             class="anim-combo relative flex w-full flex-wrap items-center justify-center gap-2 rounded-lg border border-orange-700/50 bg-orange-950/20 px-2 py-1"
@@ -256,8 +258,9 @@
             }
           </div>
         } @else {
-          <span class="text-[10px] tracking-[0.4em] text-slate-700">— 戰 鬥 區 —</span>
-        }
+            <span class="text-[10px] tracking-[0.3em] text-orange-800/60">戰 鬥 區</span>
+          }
+        </div>
       </div>
 
       <div class="duel-line shrink-0"></div>
@@ -317,13 +320,18 @@
 
       <!-- 我方場面 -->
       <div
-        class="side-player side-panel shrink-0 border border-emerald-900/50 bg-emerald-950/15 px-2 py-1.5"
+        #actionZone
+        class="side-player side-panel drop-zone--action shrink-0 rounded-lg border border-emerald-900/50 bg-emerald-950/15 px-2 py-1.5 transition-colors"
         [class.side-active]="activeSeat() === 'player' && !winner()"
+        [class.drop-zone--active]="dropZone() === 'action'"
       >
         <div class="flex flex-wrap items-center gap-x-3 gap-y-1">
           <div class="flex items-baseline gap-1">
             <span class="text-[11px] font-bold text-emerald-300">你</span>
             <span class="text-[10px] text-amber-300/80">Lv{{ player().level }}</span>
+            <span class="rounded bg-emerald-900/50 px-1.5 py-px text-[9px] font-bold tracking-wider text-emerald-300/80"
+              >行動區</span
+            >
           </div>
 
           <!-- 生命區＝血量：每重構一次少一張，歸零即敗北 -->
@@ -528,6 +536,7 @@
       @if (dragInst(); as inst) {
         <div
           class="drag-ghost pointer-events-none fixed z-[95]"
+          [class.drag-ghost--blocked]="!d.playable"
           [style.left.px]="d.x - d.grabX"
           [style.top.px]="d.y - d.grabY"
         >
