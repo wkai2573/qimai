@@ -162,4 +162,51 @@ describe('App', () => {
       expect(section.items.length, `${section.title} 沒有內容`).toBeGreaterThan(0);
     }
   });
+
+  it('雙方資源堆疊中，冷卻區位於棄牌堆右邊、等級堆左邊', async () => {
+    const fixture = TestBed.createComponent(App);
+    await fixture.whenStable();
+
+    const el = fixture.nativeElement as HTMLElement;
+    const pileContainers = el.querySelectorAll('.flex.shrink-0.items-center.justify-center');
+    expect(pileContainers.length).toBeGreaterThanOrEqual(2);
+
+    for (const container of Array.from(pileContainers)) {
+      const stacks = Array.from(container.querySelectorAll('.pile-stack'));
+      const classNames = stacks.map((s) => Array.from(s.classList).find((c) => c.startsWith('pile-stack--')) ?? '');
+
+      const discardIdx = classNames.findIndex((c) => c.includes('discard'));
+      const cooldownIdx = classNames.findIndex((c) => c.includes('cooldown'));
+      const levelIdx = classNames.findIndex((c) => c.includes('level'));
+
+      expect(discardIdx, '必須有棄牌堆').toBeGreaterThanOrEqual(0);
+      expect(cooldownIdx, '必須有冷卻區').toBeGreaterThanOrEqual(0);
+      expect(levelIdx, '必須有等級堆').toBeGreaterThanOrEqual(0);
+
+      expect(cooldownIdx, '冷卻區必須在棄牌堆右邊').toBe(discardIdx + 1);
+      expect(levelIdx, '等級堆必須在冷卻區右邊（冷卻區在等級堆左邊）').toBe(cooldownIdx + 1);
+    }
+  });
+
+  it('日誌具有分類過濾（全部/戰鬥/任務/系統）與展開收合功能', async () => {
+    const fixture = TestBed.createComponent(App);
+    const app = fixture.componentInstance;
+    await fixture.whenStable();
+
+    expect(app.logExpanded()).toBe(false);
+    app.toggleLogExpanded();
+    expect(app.logExpanded()).toBe(true);
+    app.toggleLogExpanded();
+    expect(app.logExpanded()).toBe(false);
+
+    expect(app.logFilter()).toBe('all');
+    app.setLogFilter('combat');
+    expect(app.logFilter()).toBe('combat');
+    app.setLogFilter('quest');
+    expect(app.logFilter()).toBe('quest');
+    app.setLogFilter('system');
+    expect(app.logFilter()).toBe('system');
+    app.setLogFilter('all');
+    expect(app.logFilter()).toBe('all');
+  });
 });

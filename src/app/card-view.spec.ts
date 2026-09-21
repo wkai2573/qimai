@@ -69,4 +69,25 @@ describe('卡牌的招式階級圈', () => {
       expect(fixture.componentInstance.tierLevel()).toBeLessThanOrEqual(4);
     }
   });
+
+  it('手牌卡片在左上角正確顯示費用（Cost），任務卡不顯示', () => {
+    // 招式卡（cost: 0）
+    const techDef = CARD_DEFS.find((d) => d.kind === 'technique' && d.cost === 0)!;
+    const techEl = render(techDef.id).nativeElement as HTMLElement;
+    const techCost = techEl.querySelector('.card-cost');
+    expect(techCost).toBeTruthy();
+    expect(techCost?.textContent?.trim()).toBe('0');
+
+    // 裝備卡或消耗生命卡（cost > 0）
+    const equipDef = CARD_DEFS.find((d) => d.cost > 0)!;
+    const equipEl = render(equipDef.id).nativeElement as HTMLElement;
+    const equipCost = equipEl.querySelector('.card-cost');
+    expect(equipCost).toBeTruthy();
+    expect(equipCost?.textContent?.trim()).toBe(String(equipDef.cost));
+
+    // 任務卡（kind === 'quest'）不顯示 cost
+    const questDef = CARD_DEFS.find((d) => d.kind === 'quest')!;
+    const questEl = render(questDef.id).nativeElement as HTMLElement;
+    expect(questEl.querySelector('.card-cost')).toBeNull();
+  });
 });

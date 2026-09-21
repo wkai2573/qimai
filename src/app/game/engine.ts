@@ -71,6 +71,7 @@ function emptySide(seat: Seat, character: CharacterId = 'rage'): SideState {
     immuneTrickSecretNextTurn: false,
     stats: emptyStats(),
     eventsUsedThisTurn: 0,
+    questResolvedThisTurn: false,
     buffs: [],
   };
 }
@@ -315,7 +316,7 @@ export function beginTurn(state: GameState, seat: Seat): void {
   state.phase = 'draw';
   const n = RULES.drawPerTurn + modifier(state, seat, 'drawCount');
   const drawn = draw(state, seat, n);
-  log(state, seat, `抽牌階段：抽 ${drawn} 張。`, 'info');
+  log(state, seat, `${seatLabel(seat)}在抽牌階段抽了 ${drawn} 張牌。`, 'info');
 
   if (state.winner) return;
 
@@ -335,12 +336,12 @@ export function resolveBurst(state: GameState, use: boolean): PlayResult {
     log(
       state,
       seat,
-      `爆發：丟棄牌組頂 ${milled} 張，抽 ${drawn} 張。`,
+      `${seatLabel(seat)}發動爆發：將牌組頂 ${milled} 張送入棄牌區，抽了 ${drawn} 張牌。`,
       'info',
     );
     if (state.winner) return { ok: true };
   } else {
-    log(state, seat, '爆發階段：放棄。', 'info');
+    log(state, seat, `${seatLabel(seat)}在爆發階段選擇跳過。`, 'info');
   }
 
   state.phase = 'main';
@@ -405,10 +406,13 @@ export function playCard(state: GameState, seat: Seat, iid: number): PlayResult 
   }
 
   // ── 所有檢查通過，開始結算 ──
-  if (cost > 0) payLifeCost(state, seat, cost);
+  if (cost > 0) {
+    payLifeCost(state, seat, cost);
+    log(state, seat, `${seatLabel(seat)}橫置了 ${cost} 張生命卡支付費用。`, 'info');
+  }
   if (angerCost > 0) {
     payAngerCost(state, seat, angerCost);
-    log(state, seat, `捨棄怒氣區 ${angerCost} 張卡作為代價。`, 'info');
+    log(state, seat, `${seatLabel(seat)}捨棄怒氣區 ${angerCost} 張卡作為費用代價。`, 'info');
   }
 
   side.hand.splice(
@@ -420,8 +424,8 @@ export function playCard(state: GameState, seat: Seat, iid: number): PlayResult 
   switch (def.kind) {
     case 'equipment':
       side.equipment.push(inst);
-      applyEffects(state, seat, def.effects, def.name);
       log(state, seat, `${seatLabel(seat)}裝備了「${def.name}」（${EQUIP_LABEL[def.slot ?? 'weapon']}）。`, 'info');
+      applyEffects(state, seat, def.effects, def.name);
       break;
 
     case 'action':
@@ -479,7 +483,10 @@ export function chantTechnique(state: GameState, seat: Seat, iid: number): PlayR
     return { ok: false, reason: `需要橫置 ${cost} 張生命卡進行詠唱，目前不足` };
   }
 
-  if (cost > 0) payLifeCost(state, seat, cost);
+  if (cost > 0) {
+    payLifeCost(state, seat, cost);
+    log(state, seat, `${seatLabel(seat)}橫置了 ${cost} 張生命卡支付詠唱費用。`, 'info');
+  }
 
   side.hand.splice(
     side.hand.findIndex((c) => c.iid === iid),

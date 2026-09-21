@@ -539,6 +539,22 @@ describe('任務系統', () => {
     evaluateAllQuests(g);
     expect(side.level).toBe(levelAfter);
   });
+
+  it('單一回合內同一座位至多結算一次任務，防止連鎖判定失敗', () => {
+    const g = createGame(1, { manualLifeSetup: false });
+    const side = g.sides.player;
+    side.currentQuest = makeInstance(g, 'qst_master'); // block: takeDamageInTurn >= 6
+    side.questDeck = [makeInstance(g, 'qst_surge')]; // block: takeDamageInTurn >= 7
+    side.stats.damageTaken = 10;
+
+    evaluateAllQuests(g);
+
+    // 第一張大地之境失敗回手牌
+    expect(side.hand.some((c) => c.defId === 'qst_master')).toBe(true);
+    // 新揭示的怒氣奔流不應在同一回合被連鎖判失敗
+    expect(side.currentQuest?.defId).toBe('qst_surge');
+    expect(side.hand.some((c) => c.defId === 'qst_surge')).toBe(false);
+  });
 });
 
 // ─────────────────────────────────────────────

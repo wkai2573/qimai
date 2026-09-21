@@ -12,8 +12,10 @@ import {
   hasEquipped,
   log,
   millToAnger,
+  millToAngerCards,
   nameOf,
   recover,
+  recoverCards,
   seatLabel,
   withRng,
 } from './internal';
@@ -110,17 +112,25 @@ export function applyEffect(state: GameState, seat: Seat, effect: Effect, source
   const side = state.sides[seat];
 
   switch (effect.type) {
-    case 'draw':
-      draw(state, seat, effect.n);
+    case 'draw': {
+      const d = draw(state, seat, effect.n);
+      log(state, seat, `${seatLabel(seat)}因「${sourceName}」效果抽了 ${d} 張牌。`, 'info');
       break;
+    }
 
-    case 'mill':
-      millToAnger(state, seat, effect.n);
+    case 'mill': {
+      const { count: m, cards: milled } = millToAngerCards(state, seat, effect.n);
+      const cardList = milled.length > 0 ? `（${milled.map(nameOf).join('、')}）` : '';
+      log(state, seat, `${seatLabel(seat)}因「${sourceName}」效果自損，牌組頂 ${m} 張卡進入怒氣區${cardList}。`, 'info');
       break;
+    }
 
-    case 'recover':
-      recover(state, seat, effect.n);
+    case 'recover': {
+      const { count: r, cards: recovered } = recoverCards(state, seat, effect.n);
+      const cardList = recovered.length > 0 ? `（${recovered.map(nameOf).join('、')}）` : '';
+      log(state, seat, `${seatLabel(seat)}因「${sourceName}」效果調息回復，將怒氣區 ${r} 張卡${cardList}放回牌組頂。`, 'info');
       break;
+    }
 
     case 'salvage': {
       const pool = filterCards(side.discard, effect.filter);
@@ -130,7 +140,7 @@ export function applyEffect(state: GameState, seat: Seat, effect: Effect, source
         if (idx >= 0) {
           side.discard.splice(idx, 1);
           side.hand.push(c);
-          log(state, seat, `${sourceName}：從棄牌區取回「${nameOf(c)}」。`, 'info');
+          log(state, seat, `${seatLabel(seat)}因「${sourceName}」從棄牌區取回「${nameOf(c)}」。`, 'info');
         }
       }
       break;
@@ -151,35 +161,38 @@ export function applyEffect(state: GameState, seat: Seat, effect: Effect, source
           candidates: looked,
           pick,
           selected: [],
-          rest: 'discard',
         };
-        log(state, seat, `${sourceName}：檢索中——請選擇要加入手牌的卡。`, 'info');
-        break;
-      }
+        log(state, seat, `${seatLabel(seat)}發動「${sourceName}」檢索，請選擇要加入手牌的卡。`, 'info');
+      } else {
+        // NPC 自動挑
+        const candidates = filterCards(looked, effect.filter);
+        const pool = candidates.length > 0 ? candidates : looked;
+        const picked = pool.slice(0, pick);
+        const pickedIds = new Set(picked.map((c) => c.iid));
+        const rest = looked.filter((c) => !pickedIds.has(c.iid));
 
-      // NPC 沒有這個待遇，直接由程式挑（優先取符合篩選條件的卡）
-      const preferred = filterCards(looked, effect.filter);
-      const ordered = [...preferred, ...looked.filter((c) => !preferred.includes(c))];
-      const picked = ordered.slice(0, pick);
-      const rest = ordered.slice(pick);
-
-      side.hand.push(...picked);
-      side.discard.push(...rest);
-
-      if (picked.length > 0) {
-        log(state, seat, `${sourceName}：檢索取得「${picked.map(nameOf).join('、')}」。`, 'info');
+        side.hand.push(...picked);
+        side.discard.push(...rest);
+        log(state, seat, `${seatLabel(seat)}發動「${sourceName}」檢索，取得「${picked.map(nameOf).join('、')}」。`, 'info');
       }
       break;
     }
 
     case 'discardHand': {
+      const removedCards: CardInstance[] = [];
       for (let i = 0; i < effect.n && side.hand.length > 0; i++) {
         const idx = withRng(state, (rng) => rng.int(side.hand.length));
-        const removed = side.hand.splice(idx, 1);
-        side.discard.push(...removed);
-        if (removed.length > 0) {
-          log(state, seat, `${sourceName}：棄掉「${nameOf(removed[0])}」。`, 'info');
-        }
+        const removed = side.hand.splice(idx, 1)[0];
+        side.discard.push(removed);
+        removedCards.push(removed);
+      }
+      if (removedCards.length > 0) {
+        log(
+          state,
+          seat,
+          `${seatLabel(seat)}因「${sourceName}」捨棄 ${removedCards.length} 張手牌（${removedCards.map(nameOf).join('、')}）。`,
+          'info',
+        );
       }
       break;
     }
@@ -195,7 +208,7 @@ export function applyEffect(state: GameState, seat: Seat, effect: Effect, source
         },
         () => state.nextIid++,
       );
-      log(state, seat, `${sourceName}：${describeModifier(effect.target)} ${signed(effect.amount)}。`, 'info');
+      log(state, seat, `${seatLabel(seat)}獲得「${sourceName}」增益：${describeModifier(effect.target)} ${signed(effect.amount)}。`, 'info');
       break;
 
     case 'extraGuard':

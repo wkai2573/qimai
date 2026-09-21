@@ -57,6 +57,7 @@ export function emptyStats(): TurnStats {
 export function resetTurnStats(side: SideState): void {
   side.stats = emptyStats();
   side.eventsUsedThisTurn = 0;
+  side.questResolvedThisTurn = false;
 }
 
 /** 建立一張實體卡 */
@@ -178,7 +179,16 @@ export function payAngerCost(state: GameState, seat: Seat, n: number): boolean {
 
 /** 重置階段：把所有橫置的生命卡復原 */
 export function readyAllLife(state: GameState, seat: Seat): void {
-  for (const l of state.sides[seat].life) l.tapped = false;
+  let count = 0;
+  for (const l of state.sides[seat].life) {
+    if (l.tapped) {
+      l.tapped = false;
+      count++;
+    }
+  }
+  if (count > 0) {
+    log(state, seat, `${seatLabel(seat)}的 ${count} 張生命卡已重置復原（可再次支付費用）。`, 'info');
+  }
 }
 
 // ─────────────────────────────────────────────
@@ -221,7 +231,7 @@ export function rebuild(
 
   if (seat === 'player') {
     state.pendingRebuild = { seat, remaining, resume };
-    log(state, seat, '【重構】牌組耗盡——請從生命區挑選 1 張卡加入手牌。', 'rebuild');
+    log(state, seat, '【牌組耗盡・重構】請從你的生命區挑選 1 張卡加入手牌。', 'rebuild');
     return 'pending';
   }
 
@@ -259,7 +269,7 @@ function finishRebuild(
   log(
     state,
     seat,
-    `【重構】「${nameOf(picked.card)}」加入${seatLabel(seat)}的手牌（生命區剩 ${side.life.length} 張）。`,
+    `【重構扣血】${seatLabel(seat)}從生命區取回「${nameOf(picked.card)}」加入手牌（生命區剩餘 ${side.life.length} 張）。`,
     'rebuild',
   );
 
@@ -273,7 +283,7 @@ function finishRebuild(
   side.deck = withRng(state, (rng) => rng.shuffle(side.discard));
   const size = side.deck.length;
   side.discard = [];
-  log(state, seat, `棄牌區洗勻成為新牌組（${size} 張）。`, 'rebuild');
+  log(state, seat, `【牌組重構】${seatLabel(seat)}將棄牌區 ${size} 張卡洗勻成為新牌組。`, 'rebuild');
 
   state.pendingRebuild = null;
   return 'done';
@@ -331,10 +341,10 @@ export function draw(state: GameState, seat: Seat, n: number): number {
   return drawn;
 }
 
-/** 把牌組頂 N 張直接送進怒氣區（等同受到 N 點傷害，但不由戰鬥產生） */
-export function millToAnger(state: GameState, seat: Seat, n: number): number {
+/** 把牌組頂 N 張送進怒氣區，並回傳移入的卡片實例 */
+export function millToAngerCards(state: GameState, seat: Seat, n: number): { count: number; cards: CardInstance[] } {
   const side = state.sides[seat];
-  let moved = 0;
+  const movedCards: CardInstance[] = [];
 
   for (let i = 0; i < n; i++) {
     if (state.winner || state.pendingRebuild) break;
@@ -347,11 +357,16 @@ export function millToAnger(state: GameState, seat: Seat, n: number): number {
     const top = side.deck.shift();
     if (!top) break;
     side.anger.push(top);
-    moved++;
+    movedCards.push(top);
   }
 
-  side.stats.damageTaken += moved;
-  return moved;
+  side.stats.damageTaken += movedCards.length;
+  return { count: movedCards.length, cards: movedCards };
+}
+
+/** 把牌組頂 N 張直接送進怒氣區（等同受到 N 點傷害，但不由戰鬥產生） */
+export function millToAnger(state: GameState, seat: Seat, n: number): number {
+  return millToAngerCards(state, seat, n).count;
 }
 
 /** 把牌組頂 N 張丟進棄牌區（爆發階段的代價） */
@@ -377,23 +392,27 @@ export function millToDiscard(state: GameState, seat: Seat, n: number): number {
 }
 
 /**
- * 回復N：將怒氣區 N 張卡放回牌組頂。
+ * 回復N：將怒氣區 N 張卡放回牌組頂，並回傳移入的卡片實例。
  * 裝備「聚氣玉」會讓 N 增加（recoverAmount 增益）。
  */
-export function recover(state: GameState, seat: Seat, n: number): number {
+export function recoverCards(state: GameState, seat: Seat, n: number): { count: number; cards: CardInstance[] } {
   const side = state.sides[seat];
   const amount = Math.max(0, n + modifier(state, seat, 'recoverAmount'));
-  let moved = 0;
+  const movedCards: CardInstance[] = [];
 
   for (let i = 0; i < amount; i++) {
     const c = side.anger.pop();
     if (!c) break;
     side.deck.unshift(c); // 放回牌組「頂部」（deck[0] 是頂，和抽牌的 shift 對應）
-    moved++;
+    movedCards.push(c);
   }
 
-  side.stats.recovered += moved;
-  return moved;
+  side.stats.recovered += movedCards.length;
+  return { count: movedCards.length, cards: movedCards };
+}
+
+export function recover(state: GameState, seat: Seat, n: number): number {
+  return recoverCards(state, seat, n).count;
 }
 
 // ─────────────────────────────────────────────
@@ -424,10 +443,10 @@ export function routeCardAfterPlay(state: GameState, seat: Seat, inst: CardInsta
   const def = card(inst.defId);
   if (def.toAngerBottom) {
     toAngerBottom(state, seat, [inst]);
-    log(state, seat, `「${def.name}」進入怒氣區最底部。`, 'info');
+    log(state, seat, `${seatLabel(seat)}的「${def.name}」進入怒氣區最底部【怒底】。`, 'info');
   } else if (def.cooldown && def.cooldown > 0) {
     toCooldownZone(state, seat, inst, def.cooldown);
-    log(state, seat, `「${def.name}」進入冷卻區（冷卻 ${def.cooldown} 回合）。`, 'info');
+    log(state, seat, `${seatLabel(seat)}的「${def.name}」進入冷卻區（需冷卻 ${def.cooldown} 回合）。`, 'info');
   } else {
     toDiscard(state, seat, [inst]);
   }
@@ -443,9 +462,10 @@ export function tickCooldowns(state: GameState, seat: Seat): void {
     cd.counter++;
     if (cd.counter >= cd.maxCounter) {
       side.discard.push(cd.card);
-      log(state, seat, `「${nameOf(cd.card)}」冷卻完成，進入棄牌區。`, 'info');
+      log(state, seat, `${seatLabel(seat)}的「${nameOf(cd.card)}」冷卻完成，進入棄牌區。`, 'info');
     } else {
       remaining.push(cd);
+      log(state, seat, `${seatLabel(seat)}的「${nameOf(cd.card)}」冷卻推進（剩餘 ${cd.maxCounter - cd.counter} 回合）。`, 'info');
     }
   }
   side.cooldownZone = remaining;
