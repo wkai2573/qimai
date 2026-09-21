@@ -38,14 +38,19 @@ const SIZE_CLASS: Record<CardSize, string> = {
         [class.card-disabled]="!playable() && !showcase()"
         [class.card-picked]="selected()"
         [class.card-draggable]="draggable() && playable() && !showcase()"
-        [disabled]="!playable() || showcase()"
+        [attr.aria-disabled]="!playable() || showcase()"
         (pointerdown)="onPointerDown($event)"
         (mouseenter)="onMouseEnter($event)"
         (mouseleave)="onMouseLeave()"
-        (click)="pick.emit(inst().iid)"
+        (click)="onClick($event)"
       >
+        <!-- 費用 (Cost) 左上角標記 -->
+        @if (hasCost()) {
+          <span class="card-cost" [class]="costSizeClass()" [title]="'費用：' + def().cost">{{ def().cost }}</span>
+        }
+
         <!-- 卡名 -->
-        <div class="card-name px-1.5 pt-1.5 text-center leading-tight font-bold">{{ def().name }}</div>
+        <div class="card-name px-3 pt-1.5 text-center leading-tight font-bold">{{ def().name }}</div>
 
         <!-- 卡圖 -->
         <div
@@ -102,6 +107,17 @@ export class CardViewComponent {
   /** 指標按下：由父層接手拖曳生命週期（移動與放開都在 document 上追蹤） */
   readonly pointerDown = output<PointerEvent>();
 
+  onClick(ev: MouseEvent): void {
+    if (this.showcase() || !this.playable()) {
+      if (this.tooltip()) {
+        const rect = (ev.currentTarget as HTMLElement).getBoundingClientRect();
+        this.hoverInfo.emit({ iid: this.inst().iid, rect });
+      }
+      return;
+    }
+    this.pick.emit(this.inst().iid);
+  }
+
   onPointerDown(ev: PointerEvent): void {
     if (!this.playable() || this.showcase() || !this.draggable()) return;
     this.pointerDown.emit(ev);
@@ -150,6 +166,21 @@ export class CardViewComponent {
   readonly backHtml = computed(() => this.sanitizer.bypassSecurityTrustHtml(CARD_BACK));
 
   readonly sizeClass = computed(() => SIZE_CLASS[this.size()]);
+
+  /** 任務卡不屬於手牌消耗卡，不顯示費用；其餘卡牌皆顯示費用 */
+  readonly hasCost = computed(() => this.def().kind !== 'quest');
+
+  readonly costSizeClass = computed(() => {
+    switch (this.size()) {
+      case 'sm':
+        return 'w-3.5 h-3.5 text-[8px] top-0.5 left-0.5';
+      case 'lg':
+        return 'w-6 h-6 text-[13px] top-1.5 left-1.5';
+      case 'md':
+      default:
+        return 'w-4 h-4 text-[9px] sm:w-[19px] sm:h-[19px] sm:text-[10px] top-0.5 left-0.5 sm:top-1 sm:left-1';
+    }
+  });
 
   /** 卡框顏色：依卡種與招式階級區分 */
   readonly frameClass = computed(() => {

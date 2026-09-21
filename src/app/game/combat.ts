@@ -14,6 +14,7 @@ import {
   canPlayWithCooldown,
   log,
   millToAnger,
+  millToAngerCards,
   modifier,
   nameOf,
   payAngerCost,
@@ -48,7 +49,7 @@ export function beginCombat(state: GameState, attacker: Seat): void {
       damage,
       guardReduction: def.chant?.guardReduction ?? 0,
     });
-    log(state, attacker, `【詠唱引爆】「${def.name}」釋放魔能，追加 ${damage} 點法術傷害！`, 'combat');
+    log(state, attacker, `【詠唱引爆】${seatLabel(attacker)}的「${def.name}」釋放魔能，追加 ${damage} 點法術傷害！`, 'combat');
   }
 
   state.combat = {
@@ -123,12 +124,15 @@ export function playTechnique(state: GameState, seat: Seat, iid: number): PlayRe
 
   // 支付費用
   const cost = Math.max(0, def.cost + modifier(state, seat, 'cost'));
-  if (cost > 0) payLifeCost(state, seat, cost);
+  if (cost > 0) {
+    payLifeCost(state, seat, cost);
+    log(state, seat, `${seatLabel(seat)}橫置了 ${cost} 張生命卡支付招式費用。`, 'info');
+  }
 
   const angerCost = def.angerCost ?? 0;
   if (angerCost > 0) {
     payAngerCost(state, seat, angerCost);
-    log(state, seat, `捨棄怒氣區 ${angerCost} 張卡作為代價。`, 'info');
+    log(state, seat, `${seatLabel(seat)}捨棄怒氣區 ${angerCost} 張卡作為費用代價。`, 'info');
   }
 
   // 移出手牌
@@ -155,7 +159,7 @@ export function playTechnique(state: GameState, seat: Seat, iid: number): PlayRe
       const tail = seq.slice(seq.length - need.length);
       if (tail.every((t, i) => t === need[i])) {
         damage += def.comboBonus.damage;
-        log(state, seat, `連招成立！${def.name} 額外 +${def.comboBonus.damage} 傷害。`, 'combat');
+        log(state, seat, `【連招成立】${seatLabel(seat)}的「${def.name}」追加 +${def.comboBonus.damage} 連招傷害！`, 'combat');
       }
     }
   }
@@ -163,7 +167,7 @@ export function playTechnique(state: GameState, seat: Seat, iid: number): PlayRe
   // 替罪羊判定：對手處於免疫特技密技狀態時，特技與密技造成 0 傷害
   if (defender.immuneTrickSecretNextTurn && (tier === 'trick' || tier === 'secret')) {
     damage = 0;
-    log(state, combat.defender, `【替罪羊】${seatLabel(combat.defender)}免疫特技與密技傷害！`, 'combat');
+    log(state, combat.defender, `【替罪羊生效】${seatLabel(combat.defender)}免疫了特技與密技傷害！`, 'combat');
   }
 
   damage = Math.max(0, damage);
@@ -172,7 +176,7 @@ export function playTechnique(state: GameState, seat: Seat, iid: number): PlayRe
   log(
     state,
     seat,
-    `${seatLabel(seat)}打出【${TECHNIQUE_LABEL[tier]}】${def.name}（傷害 ${damage}）。`,
+    `${seatLabel(seat)}打出【${TECHNIQUE_LABEL[tier]}】「${def.name}」（造成 ${damage} 點打擊）。`,
     'combat',
   );
 
@@ -231,7 +235,7 @@ export function resolveDefense(state: GameState): void {
   const guardReduction = combat.chantPlays.reduce((sum, cp) => sum + (cp.guardReduction ?? 0), 0);
   combat.defenseGuard = Math.max(0, guardFromCards + guardBonus - guardReduction);
 
-  const shown = flipped.map((c) => `${nameOf(c)}(防${card(c.defId).guard})`).join('、');
+  const shown = flipped.map((c) => `「${nameOf(c)}」(防禦 ${card(c.defId).guard})`).join('、');
   log(
     state,
     combat.defender,
@@ -263,21 +267,27 @@ export function resolveDamage(state: GameState): void {
     log(
       state,
       combat.defender,
-      `總攻擊 ${grossTotal} 被防禦值 ${combat.defenseGuard} 與減傷 ${damageReduction} 完全抵擋，未造成傷害。`,
+      `${seatLabel(combat.defender)}防禦成功：總攻擊 ${grossTotal} 被防禦值 ${combat.defenseGuard}${
+        damageReduction ? ` 與減傷 ${damageReduction}` : ''
+      } 完全抵擋，未受到傷害。`,
       'combat',
     );
     return;
   }
 
-  const moved = millToAnger(state, combat.defender, combat.damage);
+  const res = millToAngerCards(state, combat.defender, combat.damage);
+  const moved = res.count;
   state.sides[combat.attacker].stats.damageDealt += moved;
 
+  const movedNames = res.cards.map((c) => `「${nameOf(c)}」`).join('、');
   log(
     state,
     combat.defender,
-    `攻擊 ${grossTotal}（招式 ${techTotal} + 詠唱 ${chantTotal}）− 防禦 ${combat.defenseGuard}${
+    `結算傷害：攻擊 ${grossTotal}（招式 ${techTotal} + 詠唱 ${chantTotal}）− 防禦 ${combat.defenseGuard}${
       damageReduction ? ` − 減傷 ${damageReduction}` : ''
-    } = ${combat.damage}，${seatLabel(combat.defender)}牌組頂 ${moved} 張進入怒氣區。`,
+    } = ${combat.damage} 點。${seatLabel(combat.defender)}受到 ${moved} 點傷害${
+      movedNames ? `，將 ${movedNames} 送入怒氣區` : ''
+    }。`,
     'combat',
   );
 }

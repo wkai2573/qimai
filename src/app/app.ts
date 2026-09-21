@@ -271,13 +271,77 @@ export class App {
     this.handSpacing.set(computeHandSpacing(cards.length, cardWidth, el.clientWidth));
   }
 
-  /** 日誌最新的排最前面，玩家不必捲動就看得到剛剛發生什麼 */
-  readonly logNewestFirst = computed(() => [...this.store.log()].reverse().slice(0, 60));
+  // ── 日誌顯示與過濾 ──
+  readonly logExpanded = signal(false);
+  readonly logFilter = signal<'all' | 'combat' | 'quest' | 'system'>('all');
+
+  toggleLogExpanded(): void {
+    this.logExpanded.set(!this.logExpanded());
+  }
+
+  setLogFilter(filter: 'all' | 'combat' | 'quest' | 'system'): void {
+    this.logFilter.set(filter);
+  }
+
+  readonly filteredLogs = computed(() => {
+    const list = [...this.store.log()].reverse().slice(0, 100);
+    const f = this.logFilter();
+    if (f === 'all') return list;
+    if (f === 'combat') return list.filter((e) => e.tone === 'combat');
+    if (f === 'quest') return list.filter((e) => e.tone === 'quest');
+    return list.filter((e) => e.tone !== 'combat' && e.tone !== 'quest');
+  });
+
+  /** 向後相容屬性 */
+  readonly logNewestFirst = this.filteredLogs;
 
   readonly resultText = computed(() => {
     const w = this.store.winner();
     if (!w) return '';
     return w === 'player' ? '你贏了！' : '你輸了。';
+  });
+
+  /** 戰鬥區當前所有卡牌的名稱、類別與效果說明 */
+  readonly combatEffects = computed(() => {
+    const cb = this.combat();
+    if (!cb) return [];
+
+    const items: { name: string; tag?: string; text: string }[] = [];
+    for (const cp of cb.chantPlays) {
+      const def = card(cp.card.defId);
+      items.push({
+        name: def.name,
+        tag: '詠唱',
+        text: def.chant?.text ?? def.text,
+      });
+    }
+    for (const p of cb.plays) {
+      const def = card(p.card.defId);
+      const tag =
+        p.tier === 'trick'
+          ? '特技'
+          : p.tier === 'secret'
+            ? '密技'
+            : p.tier === 'ultimate'
+              ? '奧義'
+              : '密奧義';
+      items.push({
+        name: def.name,
+        tag,
+        text: def.text,
+      });
+    }
+    for (const d of cb.defenseCards) {
+      const def = card(d.defId);
+      if (def.effects && def.effects.length > 0) {
+        items.push({
+          name: def.name,
+          tag: '防禦',
+          text: def.text,
+        });
+      }
+    }
+    return items;
   });
 
   /** 場上小圖示（生命區、裝備區）用 */
@@ -306,6 +370,17 @@ export class App {
    */
   private findCard(iid: number): CardInstance | null {
     const s = this.store.state();
+
+    // 先查戰鬥區（出招與防禦卡）
+    if (s.combat) {
+      const combatPool: CardInstance[] = [
+        ...s.combat.plays.map((p) => p.card),
+        ...s.combat.chantPlays.map((cp) => cp.card),
+        ...s.combat.defenseCards,
+      ];
+      const hit = combatPool.find((c) => c.iid === iid);
+      if (hit) return hit;
+    }
 
     for (const seat of ['player', 'npc'] as const) {
       const side = s.sides[seat];

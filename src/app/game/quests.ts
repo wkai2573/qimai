@@ -113,6 +113,8 @@ export function evaluateQuest(state: GameState, seat: Seat): void {
   if (state.winner) return;
 
   const side = state.sides[seat];
+  if (side.questResolvedThisTurn) return;
+
   const inst = side.currentQuest;
   if (!inst) return;
 
@@ -134,6 +136,7 @@ function completeQuest(state: GameState, seat: Seat): void {
   const inst = side.currentQuest;
   if (!inst) return;
 
+  side.questResolvedThisTurn = true;
   side.currentQuest = null;
   side.levelZone.push(inst);
   side.level += 1;
@@ -141,7 +144,7 @@ function completeQuest(state: GameState, seat: Seat): void {
   log(
     state,
     seat,
-    `【任務完成】${nameOf(inst)} — ${side.seat === 'player' ? '你' : '對手'}的等級提升至 ${side.level}。`,
+    `【任務完成】「${nameOf(inst)}」達成！${side.seat === 'player' ? '你' : '對手'}的等級提升至 Lv.${side.level}。`,
     'quest',
   );
 
@@ -154,6 +157,7 @@ function failQuest(state: GameState, seat: Seat): void {
   const inst = side.currentQuest;
   if (!inst) return;
 
+  side.questResolvedThisTurn = true;
   side.currentQuest = null;
   // 失敗的任務回到手牌，之後仍可在主要階段重新打出、排回任務牌組底部
   side.hand.push(inst);
@@ -161,7 +165,7 @@ function failQuest(state: GameState, seat: Seat): void {
   log(
     state,
     seat,
-    `【任務失敗】${nameOf(inst)} 被對手促成阻止條件，此卡回到${side.seat === 'player' ? '你的' : '對手的'}手牌。`,
+    `【任務失敗】「${nameOf(inst)}」被阻止！此卡回到${side.seat === 'player' ? '你' : '對手'}的手牌。`,
     'quest',
   );
 
@@ -174,10 +178,10 @@ export function revealNextQuest(state: GameState, seat: Seat): void {
   const next = side.questDeck.shift();
 
   if (!next) {
-    log(state, seat, `${side.seat === 'player' ? '你的' : '對手的'}任務牌組已空。`, 'quest');
+    log(state, seat, `${side.seat === 'player' ? '你' : '對手'}的任務牌組已空。`, 'quest');
     return;
   }
 
   side.currentQuest = next;
-  log(state, seat, `新的任務揭示：${nameOf(next)}。`, 'quest');
+  log(state, seat, `【新任務揭示】${side.seat === 'player' ? '你' : '對手'}翻開新任務「${nameOf(next)}」。`, 'quest');
 }

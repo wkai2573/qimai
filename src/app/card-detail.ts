@@ -19,8 +19,11 @@ import { CARD_KIND_LABEL, EQUIP_LABEL, TECHNIQUE_LABEL } from './game/types';
     @if (inst(); as ci) {
       <div class="flex flex-col gap-3">
         <!-- 大卡圖 -->
-        <div class="card-frame mx-auto flex w-[150px] flex-col overflow-hidden" [class]="frameClass()">
-          <div class="card-name px-2 pt-2 text-center leading-tight font-bold">{{ def()!.name }}</div>
+        <div class="card-frame relative mx-auto flex w-[150px] flex-col overflow-hidden" [class]="frameClass()">
+          @if (def()!.kind !== 'quest') {
+            <span class="card-cost w-6 h-6 text-[13px] top-1.5 left-1.5" [title]="'費用：' + def()!.cost">{{ def()!.cost }}</span>
+          }
+          <div class="card-name px-4 pt-2 text-center leading-tight font-bold">{{ def()!.name }}</div>
           <div class="card-art mx-2 mt-1.5 mb-2 flex h-[104px] items-center justify-center rounded" [class]="artPlate()">
             <div class="h-[80%] w-[80%]" [innerHTML]="artHtml()"></div>
           </div>

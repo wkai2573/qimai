@@ -934,13 +934,13 @@ const QUEST_CARDS: CardDef[] = [
   ),
   quest(
     'qst_master',
-    '大成之境',
+    '大地之境',
     false,
-    { type: 'levelAtLeast', n: 3 },
-    '角色等級達到 3 以上',
-    { type: 'takeDamageInTurn', n: 7 },
-    '一個回合內受到 7 點以上傷害',
-    '登峰造極，氣貫長空。完成可提升 1 等級。',
+    { type: 'dealDamageInTurn', n: 5 },
+    '一個回合內造成 5 點以上傷害',
+    { type: 'takeDamageInTurn', n: 6 },
+    '一個回合內受到 6 點以上傷害',
+    '厚德載物，以雄渾氣勁破敵致勝。完成可提升 1 等級。',
   ),
 ];
 

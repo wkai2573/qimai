@@ -116,16 +116,6 @@
             <span class="text-[10px] text-amber-300/80">Lv{{ npc().level }}</span>
           </div>
 
-          @if (npc().cooldownZone.length > 0) {
-            <button
-              type="button"
-              class="btn btn--emerald btn--sm !px-1.5 !py-0.5 text-[10px]"
-              title="查看對手冷卻區內容"
-              (click)="openPile('npc', 'cooldown')"
-            >
-              冷卻區({{ npc().cooldownZone.length }})
-            </button>
-          }
           @if (npc().chantedCards.length > 0) {
             <button
               type="button"
@@ -201,7 +191,7 @@
       </div>
 
       <!-- 對手資源堆疊 -->
-      <div class="flex shrink-0 items-center justify-center gap-3">
+      <div class="flex shrink-0 items-center justify-center gap-2 sm:gap-3">
         <!-- 牌組：內容是隱藏資訊，不提供檢視 -->
         <div
           class="pile-stack pile-stack--deck"
@@ -244,6 +234,17 @@
 
         <button
           type="button"
+          class="pile-stack pile-stack--cooldown pile-stack--clickable"
+          [class.pile-stack--empty]="npc().cooldownZone.length === 0"
+          title="點擊查看對手冷卻區內容"
+          (click)="openPile('npc', 'cooldown')"
+        >
+          <span class="text-sm font-bold tabular-nums text-emerald-300">{{ npc().cooldownZone.length }}</span>
+          <span class="text-[9px] text-slate-500">冷卻</span>
+        </button>
+
+        <button
+          type="button"
           class="pile-stack pile-stack--level pile-stack--clickable"
           [class.pile-stack--empty]="npc().levelZone.length === 0"
           title="點擊查看對手已達成的任務"
@@ -269,6 +270,17 @@
             class="anim-combo relative flex w-full flex-wrap items-center justify-center gap-2 rounded-lg border border-orange-700/50 bg-orange-950/20 px-2 py-1"
           >
             <div class="flex items-end gap-1.5">
+              @for (cp of cb.chantPlays; track cp.card.iid) {
+                <div class="anim-strike relative">
+                  <app-card-view [inst]="cp.card" [playable]="false" [showcase]="true" [tooltip]="true" size="sm" (hoverInfo)="onCardHover($event)" />
+                  <span
+                    class="absolute -top-1.5 -right-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-sky-600 text-[9px] font-black text-white shadow ring-1 ring-sky-300/40"
+                    title="詠唱打擊"
+                    >{{ cp.damage }}</span
+                  >
+                  <span class="absolute -bottom-1.5 left-1/2 -translate-x-1/2 rounded bg-sky-950/95 px-1 py-px text-[7px] font-bold text-sky-300 ring-1 ring-sky-500/50">詠唱</span>
+                </div>
+              }
               @for (p of cb.plays; track p.card.iid) {
                 <div class="anim-strike relative">
                   <app-card-view [inst]="p.card" [playable]="false" [showcase]="true" [tooltip]="true" size="sm" (hoverInfo)="onCardHover($event)" />
@@ -278,7 +290,7 @@
                   >
                 </div>
               }
-              @if (cb.plays.length === 0) {
+              @if (cb.plays.length === 0 && cb.chantPlays.length === 0) {
                 <span class="text-[10px] tracking-widest text-slate-600">尚未出招</span>
               }
             </div>
@@ -301,6 +313,25 @@
                 {{ cb.damage }}
               </span>
             }
+
+            <!-- 戰鬥區卡牌效果清單 -->
+            @if (combatEffects().length > 0) {
+              <div class="mt-1 flex w-full flex-col gap-1 rounded border border-orange-800/40 bg-slate-950/80 p-2 text-[11px]">
+                <div class="text-[10px] font-bold text-orange-400 tracking-wider">戰鬥區卡牌效果：</div>
+                @for (item of combatEffects(); track item.name) {
+                  <div class="flex items-baseline gap-1.5 leading-tight">
+                    <span
+                      class="tag tag--sm shrink-0 text-[9px]"
+                      [class]="item.tag === '詠唱' ? 'tag--sky' : item.tag === '防禦' ? 'tag--slate' : 'tag--rose'"
+                    >
+                      {{ item.tag }}
+                    </span>
+                    <span class="font-bold text-slate-200">{{ item.name }}</span>
+                    <span class="text-slate-400">{{ item.text }}</span>
+                  </div>
+                }
+              </div>
+            }
           </div>
         } @else {
             <span class="text-[10px] tracking-[0.3em] text-orange-800/60">戰 鬥 區</span>
@@ -311,7 +342,7 @@
       <div class="duel-line shrink-0"></div>
 
       <!-- 我方資源堆疊 -->
-      <div class="flex shrink-0 items-center justify-center gap-3">
+      <div class="flex shrink-0 items-center justify-center gap-2 sm:gap-3">
         <div
           class="pile-stack pile-stack--deck"
           [class.pile-stack--empty]="player().deck.length === 0"
@@ -353,6 +384,17 @@
 
         <button
           type="button"
+          class="pile-stack pile-stack--cooldown pile-stack--clickable"
+          [class.pile-stack--empty]="player().cooldownZone.length === 0"
+          title="點擊查看你的冷卻區內容"
+          (click)="openPile('player', 'cooldown')"
+        >
+          <span class="text-sm font-bold tabular-nums text-emerald-300">{{ player().cooldownZone.length }}</span>
+          <span class="text-[9px] text-slate-500">冷卻</span>
+        </button>
+
+        <button
+          type="button"
           class="pile-stack pile-stack--level pile-stack--clickable"
           [class.pile-stack--empty]="player().levelZone.length === 0"
           title="點擊查看你已達成的任務"
@@ -385,16 +427,6 @@
             >
           </div>
 
-          @if (player().cooldownZone.length > 0) {
-            <button
-              type="button"
-              class="btn btn--emerald btn--sm !px-1.5 !py-0.5 text-[10px]"
-              title="查看你的冷卻區內容"
-              (click)="openPile('player', 'cooldown')"
-            >
-              冷卻區({{ player().cooldownZone.length }})
-            </button>
-          }
           @if (player().chantedCards.length > 0) {
             <button
               type="button"
@@ -588,16 +620,71 @@
   </div>
 
   <!-- ══════════ 下方日誌 ══════════ -->
-  <footer class="shrink-0 border-t border-slate-800 bg-slate-950/85 px-2 py-1">
-    <div class="flex min-w-0 gap-2">
-      <span class="shrink-0 pt-0.5 text-[10px] font-bold tracking-widest text-slate-600">日誌</span>
-      <div class="scroll-y max-h-[56px] min-w-0 flex-1 pr-1">
-        @for (entry of logNewestFirst(); track $index) {
-          <p class="anim-log text-[10px] leading-snug" [class]="logToneClass(entry.tone)">
-            <span class="text-slate-700">[{{ entry.turn }}]</span> {{ entry.text }}
-          </p>
-        }
+  <footer class="shrink-0 border-t border-slate-800 bg-slate-950/90 px-3 py-1.5 transition-all">
+    <div class="flex items-center justify-between pb-1 text-[11px] border-b border-slate-800/60 mb-1">
+      <div class="flex items-center gap-2">
+        <span class="font-bold tracking-wider text-amber-300/90">對局日誌</span>
+        <div class="flex items-center gap-1">
+          <button
+            type="button"
+            class="px-1.5 py-0.5 rounded text-[10px] font-medium transition cursor-pointer"
+            [class]="logFilter() === 'all' ? 'bg-amber-400/20 text-amber-300 font-bold' : 'text-slate-500 hover:text-slate-300'"
+            (click)="setLogFilter('all')"
+          >
+            全部
+          </button>
+          <button
+            type="button"
+            class="px-1.5 py-0.5 rounded text-[10px] font-medium transition cursor-pointer"
+            [class]="logFilter() === 'combat' ? 'bg-rose-500/20 text-rose-300 font-bold' : 'text-slate-500 hover:text-slate-300'"
+            (click)="setLogFilter('combat')"
+          >
+            戰鬥
+          </button>
+          <button
+            type="button"
+            class="px-1.5 py-0.5 rounded text-[10px] font-medium transition cursor-pointer"
+            [class]="logFilter() === 'quest' ? 'bg-amber-500/20 text-amber-300 font-bold' : 'text-slate-500 hover:text-slate-300'"
+            (click)="setLogFilter('quest')"
+          >
+            任務
+          </button>
+          <button
+            type="button"
+            class="px-1.5 py-0.5 rounded text-[10px] font-medium transition cursor-pointer"
+            [class]="logFilter() === 'system' ? 'bg-sky-500/20 text-sky-300 font-bold' : 'text-slate-500 hover:text-slate-300'"
+            (click)="setLogFilter('system')"
+          >
+            系統
+          </button>
+        </div>
       </div>
+      <button
+        type="button"
+        class="text-[10px] text-slate-400 hover:text-slate-200 flex items-center gap-1 transition cursor-pointer"
+        (click)="toggleLogExpanded()"
+      >
+        <span>{{ logExpanded() ? '收合日誌 ⤡' : '展開日誌 ⤢' }}</span>
+      </button>
+    </div>
+    <div
+      class="scroll-y min-w-0 pr-1 space-y-1 transition-[max-height] duration-200"
+      [class]="logExpanded() ? 'max-h-[220px]' : 'max-h-[58px]'"
+    >
+      @for (entry of filteredLogs(); track $index) {
+        <p class="anim-log flex items-baseline gap-1.5 text-[11px] leading-relaxed" [class]="logToneClass(entry.tone)">
+          <span
+            class="shrink-0 px-1 py-px rounded font-mono text-[9px] font-bold"
+            [class]="entry.seat === 'player' ? 'bg-emerald-950/80 text-emerald-400 ring-1 ring-emerald-500/30' : entry.seat === 'npc' ? 'bg-rose-950/80 text-rose-400 ring-1 ring-rose-500/30' : 'bg-slate-900 text-slate-400 ring-1 ring-slate-700/40'"
+          >
+            T{{ entry.turn }} · {{ entry.seat === 'player' ? '你' : entry.seat === 'npc' ? '對手' : '局' }}
+          </span>
+          <span class="flex-1">{{ entry.text }}</span>
+        </p>
+      }
+      @if (filteredLogs().length === 0) {
+        <p class="text-[10px] text-slate-600 py-2 text-center">尚無符合分類的紀錄</p>
+      }
     </div>
   </footer>
 

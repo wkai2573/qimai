@@ -373,6 +373,8 @@ export interface SideState {
   stats: TurnStats;
   /** 本回合已使用的事件卡數（上限 RULES.eventsPerTurn） */
   eventsUsedThisTurn: number;
+  /** 本回合是否已結算過任務（完成或失敗），防止連鎖結算 */
+  questResolvedThisTurn: boolean;
   buffs: Buff[];
 }
 
