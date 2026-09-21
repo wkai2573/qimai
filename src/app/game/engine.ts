@@ -11,10 +11,16 @@
  * 這是一個「階段機」：reset 與 draw 會自動跑完，之後停在需要玩家輸入的階段。
  */
 
-import { STARTER_MAIN_DECK, STARTER_QUEST_DECK, card, expandDeck } from './cards';
+import {
+  CHARACTER_MAIN_DECKS,
+  COMMON_QUEST_DECK,
+  card,
+  expandDeck,
+} from './cards';
 import { beginCombat, finishCombat, playTechnique, clearCombat } from './combat';
 import { applyEffects } from './effects';
 import {
+  canPlayWithCooldown,
   draw,
   emptyStats,
   endGame,
@@ -29,12 +35,14 @@ import {
   readyAllLife,
   resetTurnStats,
   resolveRebuild,
+  routeCardAfterPlay,
   seatLabel,
+  tickCooldowns,
   toDiscard,
   withRng,
 } from './internal';
 import { evaluateQuest } from './quests';
-import type { GameState, PendingChoice, Seat, SideState } from './types';
+import type { CharacterId, GameState, PendingChoice, Seat, SideState } from './types';
 import { EQUIP_LABEL, EQUIP_LIMITS, OTHER_SEAT, RULES } from './types';
 import type { PlayResult } from './combat';
 
@@ -42,9 +50,10 @@ import type { PlayResult } from './combat';
 // 建立對局
 // ─────────────────────────────────────────────
 
-function emptySide(seat: Seat): SideState {
+function emptySide(seat: Seat, character: CharacterId = 'rage'): SideState {
   return {
     seat,
+    character,
     level: 0,
     deck: [],
     hand: [],
@@ -55,6 +64,11 @@ function emptySide(seat: Seat): SideState {
     levelZone: [],
     questDeck: [],
     currentQuest: null,
+    cooldownZone: [],
+    chantedCards: [],
+    chantsUsedThisTurn: 0,
+    freeNextCards: [],
+    immuneTrickSecretNextTurn: false,
     stats: emptyStats(),
     eventsUsedThisTurn: 0,
     buffs: [],
@@ -62,7 +76,10 @@ function emptySide(seat: Seat): SideState {
 }
 
 export interface CreateGameOptions {
+  playerCharacter?: CharacterId;
+  npcCharacter?: CharacterId;
   mainDeck?: Readonly<Record<string, number>>;
+  npcMainDeck?: Readonly<Record<string, number>>;
   questDeck?: readonly string[];
   /**
    * 開局生命卡是否由玩家自己挑。
@@ -75,8 +92,12 @@ export interface CreateGameOptions {
  * 建立一局遊戲。同一 seed 必然產生完全相同的開局與洗牌結果。
  */
 export function createGame(seed: number, opts: CreateGameOptions = {}): GameState {
-  const mainDeck = opts.mainDeck ?? STARTER_MAIN_DECK;
-  const questIds = opts.questDeck ?? STARTER_QUEST_DECK;
+  const playerChar: CharacterId = opts.playerCharacter ?? 'rage';
+  const npcChar: CharacterId = opts.npcCharacter ?? 'rage';
+
+  const playerDeckMap = opts.mainDeck ?? CHARACTER_MAIN_DECKS[playerChar];
+  const npcDeckMap = opts.npcMainDeck ?? (opts.mainDeck && !opts.npcCharacter ? opts.mainDeck : CHARACTER_MAIN_DECKS[npcChar]);
+  const questIds = opts.questDeck ?? COMMON_QUEST_DECK;
 
   const state: GameState = {
     seed,
@@ -84,7 +105,10 @@ export function createGame(seed: number, opts: CreateGameOptions = {}): GameStat
     turn: 0,
     activeSeat: 'player',
     phase: 'setup',
-    sides: { player: emptySide('player'), npc: emptySide('npc') },
+    sides: {
+      player: emptySide('player', playerChar),
+      npc: emptySide('npc', npcChar),
+    },
     combat: null,
     winner: null,
     log: [],
@@ -98,8 +122,9 @@ export function createGame(seed: number, opts: CreateGameOptions = {}): GameStat
   // 雙方各自建立主牌組與任務牌組
   for (const seat of ['player', 'npc'] as Seat[]) {
     const side = state.sides[seat];
+    const deckMap = seat === 'player' ? playerDeckMap : npcDeckMap;
 
-    side.deck = expandDeck(mainDeck).map((id) => makeInstance(state, id));
+    side.deck = expandDeck(deckMap).map((id) => makeInstance(state, id));
     side.deck = withRng(state, (rng) => rng.shuffle(side.deck));
 
     // 任務牌組：挑出 1 張起始任務蓋在最上方，其餘洗勻墊在下面
@@ -271,9 +296,18 @@ export function beginTurn(state: GameState, seat: Seat): void {
   resetTurnStats(state.sides.player);
   resetTurnStats(state.sides.npc);
 
+  const activeSide = state.sides[seat];
+  activeSide.chantedCards = [];
+  activeSide.chantsUsedThisTurn = 0;
+  activeSide.freeNextCards = [];
+  activeSide.immuneTrickSecretNextTurn = false;
+
   // 重置階段：我方橫置的生命卡復原
   expireBuffs(state, seat, 'turnStart');
   readyAllLife(state, seat);
+
+  // 氣功冷卻區推進
+  tickCooldowns(state, seat);
 
   log(state, null, `── 第 ${state.turn} 回合：${seatLabel(seat)}的回合 ──`, 'system');
 
@@ -330,7 +364,11 @@ export function playCard(state: GameState, seat: Seat, iid: number): PlayResult 
   const def = card(inst.defId);
 
   if (def.kind === 'technique') {
-    return { ok: false, reason: '招式卡只能在戰鬥階段出招步驟使用' };
+    return { ok: false, reason: '招式卡只能在戰鬥階段出招，或於主要階段進行詠唱' };
+  }
+
+  if (!canPlayWithCooldown(state, seat, inst.defId)) {
+    return { ok: false, reason: '冷卻區已有同名卡，達到儲存上限' };
   }
 
   if (def.kind === 'event' && side.eventsUsedThisTurn >= RULES.eventsPerTurn) {
@@ -349,7 +387,14 @@ export function playCard(state: GameState, seat: Seat, iid: number): PlayResult 
     }
   }
 
-  const cost = Math.max(0, def.cost + modifier(state, seat, 'cost'));
+  let cost = Math.max(0, def.cost + modifier(state, seat, 'cost'));
+  const freeIdx = side.freeNextCards.indexOf(def.id);
+  if (freeIdx >= 0) {
+    cost = 0;
+    side.freeNextCards.splice(freeIdx, 1);
+    log(state, seat, `【拋下狠話】生效：「${def.name}」免費用。`, 'info');
+  }
+
   if (state.sides[seat].life.filter((l) => !l.tapped).length < cost) {
     return { ok: false, reason: `需要橫置 ${cost} 張生命卡，目前不足` };
   }
@@ -382,14 +427,14 @@ export function playCard(state: GameState, seat: Seat, iid: number): PlayResult 
     case 'action':
       log(state, seat, `${seatLabel(seat)}使用了行動卡「${def.name}」。`, 'info');
       applyEffects(state, seat, def.effects, def.name);
-      toDiscard(state, seat, [inst]);
+      routeCardAfterPlay(state, seat, inst);
       break;
 
     case 'event':
       side.eventsUsedThisTurn += 1;
       log(state, seat, `${seatLabel(seat)}使用了事件卡「${def.name}」。`, 'info');
       applyEffects(state, seat, def.effects, def.name);
-      toDiscard(state, seat, [inst]);
+      routeCardAfterPlay(state, seat, inst);
       break;
 
     case 'quest':
@@ -401,6 +446,57 @@ export function playCard(state: GameState, seat: Seat, iid: number): PlayResult 
     default:
       break;
   }
+
+  evaluateAllQuests(state);
+  return { ok: true };
+}
+
+/** 詠唱招式：可在主要階段支付費用打出，戰鬥階段作為額外出招引爆 */
+export function chantTechnique(state: GameState, seat: Seat, iid: number): PlayResult {
+  if (state.winner) return { ok: false, reason: '遊戲已經結束' };
+  if (state.phase !== 'main') return { ok: false, reason: '現在不是主要階段' };
+  if (state.activeSeat !== seat) return { ok: false, reason: '不是你的回合' };
+
+  const side = state.sides[seat];
+  if (side.chantsUsedThisTurn >= RULES.chantsPerTurn) {
+    return { ok: false, reason: `每回合最多詠唱 ${RULES.chantsPerTurn} 次` };
+  }
+
+  const inst = side.hand.find((c) => c.iid === iid);
+  if (!inst) return { ok: false, reason: '手牌中沒有這張卡' };
+
+  const def = card(inst.defId);
+  if (!def.chant) {
+    return { ok: false, reason: '這張卡沒有詠唱特性' };
+  }
+
+  if (!canPlayWithCooldown(state, seat, inst.defId)) {
+    return { ok: false, reason: '冷卻區已有同名卡，達到儲存上限' };
+  }
+
+  const cost = Math.max(0, def.chant.cost + modifier(state, seat, 'cost'));
+  if (side.life.filter((l) => !l.tapped).length < cost) {
+    return { ok: false, reason: `需要橫置 ${cost} 張生命卡進行詠唱，目前不足` };
+  }
+
+  if (cost > 0) payLifeCost(state, seat, cost);
+
+  side.hand.splice(
+    side.hand.findIndex((c) => c.iid === iid),
+    1,
+  );
+
+  side.chantedCards.push(inst);
+  side.chantsUsedThisTurn += 1;
+  side.stats.playKind[def.kind] += 1;
+  if (def.tier) side.stats.playTier[def.tier] += 1;
+
+  log(
+    state,
+    seat,
+    `${seatLabel(seat)}詠唱了「${def.name}」（${def.chant.text}）。`,
+    'combat',
+  );
 
   evaluateAllQuests(state);
   return { ok: true };

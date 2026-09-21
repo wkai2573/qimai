@@ -11,6 +11,7 @@
 import { card } from './cards';
 import { applyEffects, checkCondition } from './effects';
 import {
+  canPlayWithCooldown,
   log,
   millToAnger,
   modifier,
@@ -18,11 +19,12 @@ import {
   payAngerCost,
   payLifeCost,
   rebuild,
+  routeCardAfterPlay,
   seatLabel,
   toDiscard,
 } from './internal';
 import { detectCombos, evaluateQuest } from './quests';
-import type { CardInstance, CombatState, GameState, Seat } from './types';
+import type { CardInstance, ChantCombatPlay, CombatState, GameState, Seat } from './types';
 import { OTHER_SEAT, TECHNIQUE_LABEL, TECHNIQUE_ORDER } from './types';
 
 export interface PlayResult {
@@ -35,10 +37,25 @@ export interface PlayResult {
 // ─────────────────────────────────────────────
 
 export function beginCombat(state: GameState, attacker: Seat): void {
+  const chantPlays: ChantCombatPlay[] = [];
+  const side = state.sides[attacker];
+
+  for (const c of side.chantedCards) {
+    const def = card(c.defId);
+    const damage = Math.max(0, (def.chant?.damage ?? 0) + modifier(state, attacker, 'chantDamage'));
+    chantPlays.push({
+      card: c,
+      damage,
+      guardReduction: def.chant?.guardReduction ?? 0,
+    });
+    log(state, attacker, `【詠唱引爆】「${def.name}」釋放魔能，追加 ${damage} 點法術傷害！`, 'combat');
+  }
+
   state.combat = {
     attacker,
     defender: OTHER_SEAT[attacker],
     plays: [],
+    chantPlays,
     defenseCards: [],
     defenseGuard: 0,
     damage: 0,
@@ -65,6 +82,10 @@ export function techniquePlayability(state: GameState, seat: Seat, iid: number):
 
   const def = card(inst.defId);
   if (def.kind !== 'technique' || !def.tier) return { ok: false, reason: '這不是招式卡' };
+
+  if (!canPlayWithCooldown(state, seat, inst.defId)) {
+    return { ok: false, reason: '冷卻區已有同名卡，達到儲存上限' };
+  }
 
   const idx = TECHNIQUE_ORDER.indexOf(def.tier);
   const last = combat.plays[combat.plays.length - 1];
@@ -96,6 +117,7 @@ export function playTechnique(state: GameState, seat: Seat, iid: number): PlayRe
 
   const combat = state.combat as CombatState;
   const side = state.sides[seat];
+  const defender = state.sides[combat.defender];
   const inst = side.hand.find((c) => c.iid === iid) as CardInstance;
   const def = card(inst.defId);
 
@@ -138,6 +160,12 @@ export function playTechnique(state: GameState, seat: Seat, iid: number): PlayRe
     }
   }
 
+  // 替罪羊判定：對手處於免疫特技密技狀態時，特技與密技造成 0 傷害
+  if (defender.immuneTrickSecretNextTurn && (tier === 'trick' || tier === 'secret')) {
+    damage = 0;
+    log(state, combat.defender, `【替罪羊】${seatLabel(combat.defender)}免疫特技與密技傷害！`, 'combat');
+  }
+
   damage = Math.max(0, damage);
   combat.plays.push({ tier, card: inst, damage });
 
@@ -176,8 +204,8 @@ export function resolveDefense(state: GameState): void {
 
   combat.step = 'defense';
 
-  // 攻擊方沒有出任何招 → 不進防禦判定，直接結束戰鬥
-  if (combat.plays.length === 0) {
+  // 攻擊方既沒有出常規招式，也沒有詠唱招式 → 不進防禦判定，直接結束戰鬥
+  if (combat.plays.length === 0 && combat.chantPlays.length === 0) {
     log(state, combat.attacker, `${seatLabel(combat.attacker)}沒有出招，戰鬥結束。`, 'combat');
     combat.step = 'done';
     return;
@@ -200,7 +228,8 @@ export function resolveDefense(state: GameState): void {
 
   const guardFromCards = flipped.reduce((sum, c) => sum + card(c.defId).guard, 0);
   const guardBonus = modifier(state, combat.defender, 'guardValue');
-  combat.defenseGuard = guardFromCards + guardBonus;
+  const guardReduction = combat.chantPlays.reduce((sum, cp) => sum + (cp.guardReduction ?? 0), 0);
+  combat.defenseGuard = Math.max(0, guardFromCards + guardBonus - guardReduction);
 
   const shown = flipped.map((c) => `${nameOf(c)}(防${card(c.defId).guard})`).join('、');
   log(
@@ -208,7 +237,7 @@ export function resolveDefense(state: GameState): void {
     combat.defender,
     `${seatLabel(combat.defender)}翻開防禦卡：${shown || '（無）'}${
       guardBonus ? `，防禦增益 +${guardBonus}` : ''
-    } → 總防禦值 ${combat.defenseGuard}。`,
+    }${guardReduction ? `，詠唱削弱 -${guardReduction}` : ''} → 總防禦值 ${combat.defenseGuard}。`,
     'combat',
   );
 }
@@ -223,14 +252,18 @@ export function resolveDamage(state: GameState): void {
 
   combat.step = 'damage';
 
-  const total = combat.plays.reduce((sum, p) => sum + p.damage, 0);
-  combat.damage = Math.max(0, total - combat.defenseGuard);
+  const techTotal = combat.plays.reduce((sum, p) => sum + p.damage, 0);
+  const chantTotal = combat.chantPlays.reduce((sum, p) => sum + p.damage, 0);
+  const grossTotal = techTotal + chantTotal;
+  const netAfterGuard = Math.max(0, grossTotal - combat.defenseGuard);
+  const damageReduction = modifier(state, combat.defender, 'damageReduction');
+  combat.damage = Math.max(0, netAfterGuard - damageReduction);
 
   if (combat.damage === 0) {
     log(
       state,
       combat.defender,
-      `傷害 ${total} 被防禦值 ${combat.defenseGuard} 完全擋下，未造成傷害。`,
+      `總攻擊 ${grossTotal} 被防禦值 ${combat.defenseGuard} 與減傷 ${damageReduction} 完全抵擋，未造成傷害。`,
       'combat',
     );
     return;
@@ -242,9 +275,9 @@ export function resolveDamage(state: GameState): void {
   log(
     state,
     combat.defender,
-    `傷害 ${total} − 防禦 ${combat.defenseGuard} = ${combat.damage}，${seatLabel(
-      combat.defender,
-    )}牌組頂 ${moved} 張進入怒氣區。`,
+    `攻擊 ${grossTotal}（招式 ${techTotal} + 詠唱 ${chantTotal}）− 防禦 ${combat.defenseGuard}${
+      damageReduction ? ` − 減傷 ${damageReduction}` : ''
+    } = ${combat.damage}，${seatLabel(combat.defender)}牌組頂 ${moved} 張進入怒氣區。`,
     'combat',
   );
 }
@@ -259,13 +292,17 @@ export function returnCombatCards(state: GameState): void {
 
   combat.step = 'return';
 
-  toDiscard(
-    state,
-    combat.attacker,
-    combat.plays.map((p) => p.card),
-  );
-  toDiscard(state, combat.defender, combat.defenseCards);
+  // 攻擊方打出的招式卡與詠唱卡依屬性（怒底 / 冷卻 / 棄牌）送回
+  for (const p of combat.plays) {
+    routeCardAfterPlay(state, combat.attacker, p.card);
+  }
+  for (const cp of combat.chantPlays) {
+    routeCardAfterPlay(state, combat.attacker, cp.card);
+  }
+  state.sides[combat.attacker].chantedCards = [];
 
+  // 防禦卡一律進入防禦方的棄牌區
+  toDiscard(state, combat.defender, combat.defenseCards);
   combat.defenseCards = [];
 }
 
@@ -282,7 +319,7 @@ export function finishCombat(state: GameState): void {
   if (!combat || combat.step === 'done') return;
 
   resolveDefense(state);
-  if (combat.plays.length > 0) resolveDamage(state);
+  if (combat.plays.length > 0 || combat.chantPlays.length > 0) resolveDamage(state);
   returnCombatCards(state);
 
   combat.step = 'done';

@@ -6,6 +6,24 @@
     <span class="text-base font-black tracking-[0.2em] text-amber-300">氣脈</span>
     <span class="tag tag--slate">第 {{ turn() }} 回合</span>
 
+    <span
+      class="tag cursor-pointer"
+      [class]="playerCharDef().colorName === 'rose' ? 'tag--rose' : playerCharDef().colorName === 'sky' ? 'tag--sky' : 'tag--emerald'"
+      title="點擊切換英雄"
+      (click)="openHeroSelect()"
+    >
+      {{ playerCharDef().title }}
+    </span>
+    <span class="text-[10px] text-slate-500 font-bold">VS</span>
+    <span
+      class="tag cursor-pointer"
+      [class]="npcCharDef().colorName === 'rose' ? 'tag--rose' : npcCharDef().colorName === 'sky' ? 'tag--sky' : 'tag--emerald'"
+      title="點擊切換英雄"
+      (click)="openHeroSelect()"
+    >
+      {{ npcCharDef().title }}
+    </span>
+
     @if (activeSeat() === 'player') {
       <span class="tag tag--emerald">你的回合</span>
     } @else {
@@ -63,7 +81,7 @@
       }
     </div>
 
-    <button type="button" class="btn btn--amber btn--sm" (click)="store.newGame()">新對局</button>
+    <button type="button" class="btn btn--amber btn--sm" (click)="openHeroSelect()">新對局</button>
     <button type="button" class="btn btn--slate btn--sm" title="遊戲規則" (click)="openRules()">？</button>
   </header>
 
@@ -87,10 +105,37 @@
         [class.side-active]="activeSeat() === 'npc' && !winner()"
       >
         <div class="flex flex-wrap items-center gap-x-3 gap-y-1">
-          <div class="flex items-baseline gap-1">
+          <div class="flex items-baseline gap-1.5">
             <span class="text-[11px] font-bold text-rose-300">對手</span>
+            <span
+              class="tag tag--sm"
+              [class]="npcCharDef().colorName === 'rose' ? 'tag--rose' : npcCharDef().colorName === 'sky' ? 'tag--sky' : 'tag--emerald'"
+            >
+              {{ npcCharDef().title }}
+            </span>
             <span class="text-[10px] text-amber-300/80">Lv{{ npc().level }}</span>
           </div>
+
+          @if (npc().cooldownZone.length > 0) {
+            <button
+              type="button"
+              class="btn btn--emerald btn--sm !px-1.5 !py-0.5 text-[10px]"
+              title="查看對手冷卻區內容"
+              (click)="openPile('npc', 'cooldown')"
+            >
+              冷卻區({{ npc().cooldownZone.length }})
+            </button>
+          }
+          @if (npc().chantedCards.length > 0) {
+            <button
+              type="button"
+              class="btn btn--sky btn--sm !px-1.5 !py-0.5 text-[10px]"
+              title="查看對手已詠唱卡片"
+              (click)="openPile('npc', 'chant')"
+            >
+              已詠唱({{ npc().chantedCards.length }})
+            </button>
+          }
 
           <!-- 生命區＝血量：每重構一次少一張，歸零即敗北 -->
           <div class="flex items-center gap-1">
@@ -326,13 +371,40 @@
         [class.drop-zone--active]="dropZone() === 'action'"
       >
         <div class="flex flex-wrap items-center gap-x-3 gap-y-1">
-          <div class="flex items-baseline gap-1">
+          <div class="flex items-baseline gap-1.5">
             <span class="text-[11px] font-bold text-emerald-300">你</span>
+            <span
+              class="tag tag--sm"
+              [class]="playerCharDef().colorName === 'rose' ? 'tag--rose' : playerCharDef().colorName === 'sky' ? 'tag--sky' : 'tag--emerald'"
+            >
+              {{ playerCharDef().title }}
+            </span>
             <span class="text-[10px] text-amber-300/80">Lv{{ player().level }}</span>
             <span class="rounded bg-emerald-900/50 px-1.5 py-px text-[9px] font-bold tracking-wider text-emerald-300/80"
               >行動區</span
             >
           </div>
+
+          @if (player().cooldownZone.length > 0) {
+            <button
+              type="button"
+              class="btn btn--emerald btn--sm !px-1.5 !py-0.5 text-[10px]"
+              title="查看你的冷卻區內容"
+              (click)="openPile('player', 'cooldown')"
+            >
+              冷卻區({{ player().cooldownZone.length }})
+            </button>
+          }
+          @if (player().chantedCards.length > 0) {
+            <button
+              type="button"
+              class="btn btn--sky btn--sm !px-1.5 !py-0.5 text-[10px]"
+              title="查看你已詠唱卡片"
+              (click)="openPile('player', 'chant')"
+            >
+              已詠唱({{ player().chantedCards.length }})
+            </button>
+          }
 
           <!-- 生命區＝血量：每重構一次少一張，歸零即敗北 -->
           <div class="flex items-center gap-1">
@@ -383,7 +455,7 @@
             }
           </div>
 
-          @for (b of player().buffs; track b.id) {
+          @for (b of playerNonEquipBuffs(); track b.id) {
             <span class="tag tag--violet">{{ b.source }}</span>
           }
 
@@ -477,7 +549,7 @@
               <span class="text-lg font-black" [class]="winner() === 'player' ? 'text-amber-300' : 'text-rose-400'">
                 {{ resultText() }}
               </span>
-              <button type="button" class="btn btn--amber btn--lg" (click)="store.newGame()">再來一局</button>
+              <button type="button" class="btn btn--amber btn--lg" (click)="openHeroSelect()">再來一局</button>
             }
 
             @default {
@@ -714,4 +786,118 @@
       </div>
     }
   </div>
+
+  <!-- ══════════ 英雄流派選擇彈窗 ══════════ -->
+  @if (showHeroSelect()) {
+    <div class="fixed inset-0 z-[110] flex items-center justify-center bg-slate-950/90 p-4 backdrop-blur-md">
+      <div class="anim-sheet flex max-h-[94vh] w-full max-w-4xl flex-col overflow-hidden rounded-xl border border-amber-500/40 bg-slate-900/95 shadow-2xl">
+        <header class="flex shrink-0 items-center justify-between border-b border-slate-800 bg-slate-950/70 px-5 py-3.5">
+          <div>
+            <h2 class="text-lg font-black tracking-wider text-amber-300">選擇對決英雄</h2>
+            <p class="text-xs text-slate-400">第一步：選擇你的流派角色 · 第二步：選擇對手電腦角色</p>
+          </div>
+          @if (!winner() && store.state().turn > 0) {
+            <button type="button" class="btn btn--ghost btn--sm" (click)="closeHeroSelect()">關閉</button>
+          }
+        </header>
+
+        <div class="scroll-y flex-1 space-y-5 p-5">
+          <!-- 玩家選擇 -->
+          <div>
+            <div class="mb-2.5 flex items-center gap-2">
+              <span class="flex h-5 w-5 items-center justify-center rounded-full bg-amber-500 text-xs font-black text-slate-950">1</span>
+              <h3 class="text-sm font-bold text-slate-200">你的英雄（玩家先選）</h3>
+            </div>
+
+            <div class="grid grid-cols-1 gap-3 md:grid-cols-3">
+              @for (id of characterIds; track id) {
+                @let c = characters[id];
+                <button
+                  type="button"
+                  class="relative flex flex-col rounded-xl border p-4 text-left transition-all hover:scale-[1.01]"
+                  [class]="selectedPlayerChar() === id
+                    ? 'border-amber-400 bg-gradient-to-b ' + c.bgGradient + ' ring-2 ring-amber-400/40 shadow-lg'
+                    : 'border-slate-800 bg-slate-950/60 opacity-75 hover:opacity-100 hover:border-slate-700'"
+                  (click)="selectedPlayerChar.set(id)"
+                >
+                  <div class="flex items-center justify-between">
+                    <span class="text-base font-black text-slate-100">{{ c.title }}</span>
+                    <span
+                      class="tag tag--sm"
+                      [class]="c.colorName === 'rose' ? 'tag--rose' : c.colorName === 'sky' ? 'tag--sky' : 'tag--emerald'"
+                    >
+                      {{ c.badge }}
+                    </span>
+                  </div>
+                  <div class="mt-2 text-xs font-semibold text-amber-300/90">{{ c.primaryPlaystyle }}</div>
+                  <p class="mt-2 text-[11px] leading-relaxed text-slate-300">{{ c.summary }}</p>
+                  <div class="mt-3 rounded-lg border border-slate-700/50 bg-slate-950/40 p-2 text-[10px] leading-relaxed text-slate-400">
+                    <strong class="text-slate-200">專屬機制：</strong>{{ c.featureDesc }}
+                  </div>
+                  @if (selectedPlayerChar() === id) {
+                    <div class="mt-3 flex items-center gap-1.5 text-xs font-bold text-amber-400">
+                      <span>✓ 已選擇此英雄</span>
+                    </div>
+                  }
+                </button>
+              }
+            </div>
+          </div>
+
+          <!-- 電腦對手選擇 -->
+          <div>
+            <div class="mb-2.5 flex items-center gap-2">
+              <span class="flex h-5 w-5 items-center justify-center rounded-full bg-rose-500 text-xs font-black text-white">2</span>
+              <h3 class="text-sm font-bold text-slate-200">對手英雄（電腦選擇）</h3>
+            </div>
+
+            <div class="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
+              <button
+                type="button"
+                class="flex flex-col items-center justify-center rounded-lg border p-3 text-center transition hover:border-slate-600"
+                [class]="selectedNpcChar() === 'random'
+                  ? 'border-purple-400 bg-purple-950/40 ring-2 ring-purple-400/30'
+                  : 'border-slate-800 bg-slate-950/60 opacity-75'"
+                (click)="selectedNpcChar.set('random')"
+              >
+                <span class="text-xl">🎲</span>
+                <span class="mt-1 text-xs font-bold text-slate-200">隨機對手</span>
+                <span class="text-[10px] text-slate-500">電腦隨機匹配</span>
+              </button>
+
+              @for (id of characterIds; track id) {
+                @let c = characters[id];
+                <button
+                  type="button"
+                  class="flex flex-col items-center justify-center rounded-lg border p-3 text-center transition hover:border-slate-600"
+                  [class]="selectedNpcChar() === id
+                    ? 'border-rose-400 bg-gradient-to-b ' + c.bgGradient + ' ring-2 ring-rose-400/30'
+                    : 'border-slate-800 bg-slate-950/60 opacity-75'"
+                  (click)="selectedNpcChar.set(id)"
+                >
+                  <span class="text-xs font-bold text-slate-200">{{ c.title }}</span>
+                  <span
+                    class="mt-1 tag tag--sm text-[9px]"
+                    [class]="c.colorName === 'rose' ? 'tag--rose' : c.colorName === 'sky' ? 'tag--sky' : 'tag--emerald'"
+                  >
+                    {{ c.name }}
+                  </span>
+                </button>
+              }
+            </div>
+          </div>
+        </div>
+
+        <footer class="flex shrink-0 items-center justify-between border-t border-slate-800 bg-slate-950/80 px-5 py-3.5">
+          <div class="text-xs text-slate-400">
+            你將以 <b class="text-amber-300">{{ characters[selectedPlayerChar()].title }}</b> 對決
+            <b class="text-rose-300">{{ selectedNpcTitle() }}</b>
+          </div>
+          <button type="button" class="btn btn--amber btn--lg font-bold" (click)="startSelectedGame()">
+            踏入江湖 · 開始對局 ➔
+          </button>
+        </footer>
+      </div>
+    </div>
+  }
 </div>

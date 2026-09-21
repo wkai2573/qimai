@@ -95,18 +95,42 @@ export function nameOf(inst: CardInstance): string {
 }
 
 // ─────────────────────────────────────────────
-// 增益
+// 增益與常駐冷卻加成
 // ─────────────────────────────────────────────
 
-/** 某座位在指定數值上的增益總和 */
+/** 某座位在指定數值上的增益總和（包含主動 BUFF 與冷卻區常駐效果） */
 export function modifier(state: GameState, seat: Seat, target: ModifierTarget): number {
-  return state.sides[seat].buffs
+  const side = state.sides[seat];
+  const fromBuffs = side.buffs
     .filter((b) => b.target === target)
     .reduce((sum, b) => sum + b.amount, 0);
+
+  const fromCooldown = side.cooldownZone
+    .map((cd) => {
+      try {
+        return card(cd.card.defId).cooldownBuff;
+      } catch {
+        return undefined;
+      }
+    })
+    .filter((cb): cb is NonNullable<typeof cb> => !!cb && cb.target === target)
+    .reduce((sum, cb) => sum + cb.amount, 0);
+
+  return fromBuffs + fromCooldown;
 }
 
 export function addBuff(side: SideState, buff: Omit<Buff, 'id'>, nextId: () => number): void {
   side.buffs.push({ ...buff, id: nextId() });
+}
+
+/** 檢查手牌中的卡片是否因冷卻區同名限制而無法打出（需符合儲存 storage(X) 條件） */
+export function canPlayWithCooldown(state: GameState, seat: Seat, defId: string): boolean {
+  const side = state.sides[seat];
+  const countInCooldown = side.cooldownZone.filter((c) => c.card.defId === defId).length;
+  if (countInCooldown === 0) return true;
+  const def = card(defId);
+  const storage = def.storage ?? 1;
+  return countInCooldown < storage;
 }
 
 /** 是否裝備了某部位的卡 */
@@ -378,6 +402,53 @@ export function recover(state: GameState, seat: Seat, n: number): number {
 
 export function toDiscard(state: GameState, seat: Seat, cards: CardInstance[]): void {
   state.sides[seat].discard.push(...cards);
+}
+
+/** 將卡片置於怒氣區最底部 */
+export function toAngerBottom(state: GameState, seat: Seat, cards: CardInstance[]): void {
+  // anger[0] 是最底部，pop() 是從頂部拿
+  state.sides[seat].anger.unshift(...cards);
+}
+
+/** 將卡片送入冷卻區 */
+export function toCooldownZone(state: GameState, seat: Seat, cardInst: CardInstance, cooldown: number): void {
+  state.sides[seat].cooldownZone.push({
+    card: cardInst,
+    counter: 0,
+    maxCounter: cooldown,
+  });
+}
+
+/** 依據卡片屬性決定使用後的去處（怒氣底 / 冷卻區 / 棄牌區） */
+export function routeCardAfterPlay(state: GameState, seat: Seat, inst: CardInstance): void {
+  const def = card(inst.defId);
+  if (def.toAngerBottom) {
+    toAngerBottom(state, seat, [inst]);
+    log(state, seat, `「${def.name}」進入怒氣區最底部。`, 'info');
+  } else if (def.cooldown && def.cooldown > 0) {
+    toCooldownZone(state, seat, inst, def.cooldown);
+    log(state, seat, `「${def.name}」進入冷卻區（冷卻 ${def.cooldown} 回合）。`, 'info');
+  } else {
+    toDiscard(state, seat, [inst]);
+  }
+}
+
+/** 回合開始時推進冷卻區計時器，達成者送入棄牌區 */
+export function tickCooldowns(state: GameState, seat: Seat): void {
+  const side = state.sides[seat];
+  if (side.cooldownZone.length === 0) return;
+
+  const remaining: typeof side.cooldownZone = [];
+  for (const cd of side.cooldownZone) {
+    cd.counter++;
+    if (cd.counter >= cd.maxCounter) {
+      side.discard.push(cd.card);
+      log(state, seat, `「${nameOf(cd.card)}」冷卻完成，進入棄牌區。`, 'info');
+    } else {
+      remaining.push(cd);
+    }
+  }
+  side.cooldownZone = remaining;
 }
 
 /** 從手牌移除指定卡並回傳（找不到回傳 null） */

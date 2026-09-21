@@ -12,6 +12,15 @@
 // 卡牌分類
 // ─────────────────────────────────────────────
 
+/** 角色三大類型 */
+export type CharacterId = 'rage' | 'mage' | 'qigong';
+
+export const CHARACTER_LABEL: Record<CharacterId, string> = {
+  rage: '狂怒',
+  mage: '秘法',
+  qigong: '氣功',
+};
+
 /** 卡牌五大種類 */
 export type CardKind = 'equipment' | 'action' | 'event' | 'quest' | 'technique';
 
@@ -76,6 +85,8 @@ export const RULES = {
   burstMill: 2,
   /** 事件卡每回合使用上限 */
   eventsPerTurn: 1,
+  /** 詠唱每回合上限 */
+  chantsPerTurn: 1,
 } as const;
 
 // ─────────────────────────────────────────────
@@ -110,7 +121,10 @@ export type ModifierTarget =
   | 'drawCount' // 抽牌階段的抽牌數
   | 'recoverAmount' // 回復量
   | 'cost' // 使用費用
-  | 'extraGuard'; // 防禦判定時額外翻開的張數
+  | 'extraGuard' // 防禦判定時額外翻開的張數
+  | 'chantDamage' // 詠唱傷害加成
+  | 'damageReduction' // 減免傷害
+  | 'immuneTrickSecret'; // 免疫特技與密技傷害與效果
 
 /**
  * 效果。資料驅動的核心：新增卡片只要組合這些既有效果，不必改引擎。
@@ -134,6 +148,22 @@ export type Effect =
   | { type: 'extraGuard'; n: number; expiry: ExpiryPoint }
   /** 等級 +N */
   | { type: 'gainLevel'; n: number }
+  /** 【洩憤】公開怒氣頂 look 張，招式卡全上手，其餘棄牌 */
+  | { type: 'rageSearchTech'; look: number }
+  /** 【忍氣吞聲】回復 X（X = 手牌數） */
+  | { type: 'recoverHandCount' }
+  /** 【挑釁/威嚇】對手選擇 1 張手牌置於怒氣區底 */
+  | { type: 'forceOpponentHandToAnger'; conditionHandAtLeast?: number }
+  /** 【拋下狠話】對手捨棄 1 張招式卡（無則展示手牌），我方抽 1 張 */
+  | { type: 'opponentDiscardTechnique' }
+  /** 本回合下一張特定卡免費用 */
+  | { type: 'freeCardNext'; targetDefId: string }
+  /** 【替罪羊】對手下回合中我方不受特技、密技傷害與效果影響 */
+  | { type: 'immuneTrickSecret' }
+  /** 【氣功】使冷卻區所有卡牌進度 +N */
+  | { type: 'advanceCooldowns'; n: number }
+  /** 【氣功】立即完成 1 張冷卻卡送入棄牌區 */
+  | { type: 'finishCooldown' }
   /** 條件效果：when 成立時才套用 effect。連招加成、密奧義追加效果都靠這個 */
   | { type: 'conditional'; when: Condition; effect: Effect };
 
@@ -149,7 +179,11 @@ export type Condition =
   | { type: 'deckAtLeast'; n: number }
   | { type: 'lifeAtLeast'; n: number }
   | { type: 'equippedSlot'; slot: EquipSlot }
-  | { type: 'levelAtLeast'; n: number };
+  | { type: 'levelAtLeast'; n: number }
+  /** 冷卻區卡牌數量達到 N */
+  | { type: 'cooldownCountAtLeast'; n: number }
+  /** 本回合已有詠唱過招式 */
+  | { type: 'hasChantedThisTurn' };
 
 /**
  * 任務條件。任務卡是「雙面」的：
@@ -183,6 +217,21 @@ export interface QuestDef {
   blockText: string;
 }
 
+/** 詠唱特性定義 */
+export interface ChantDef {
+  cost: number;
+  damage?: number;
+  guardReduction?: number;
+  text: string;
+}
+
+/** 冷卻常駐增益定義 */
+export interface CooldownBuffDef {
+  target: ModifierTarget;
+  amount: number;
+  text: string;
+}
+
 export interface CardDef {
   id: string;
   name: string;
@@ -202,6 +251,21 @@ export interface CardDef {
 
   /** 卡面敘述（UI 顯示用） */
   text: string;
+
+  /** 【狂怒】使用後不送棄牌區，改置於怒氣區最底下 */
+  toAngerBottom?: boolean;
+
+  /** 【魔法】詠唱特性：可在主要階段支付費用打出，戰鬥階段作為額外出招引爆 */
+  chant?: ChantDef;
+
+  /** 【氣功】冷卻回合數：使用後進入冷卻區，累積 X 個指示物後進棄牌區 */
+  cooldown?: number;
+
+  /** 【氣功】儲存(X)：冷卻區低於 X 張此卡同名卡時，不受同名卡無法使用影響 */
+  storage?: number;
+
+  /** 【氣功】在冷卻區期間為角色提供的常駐增益 */
+  cooldownBuff?: CooldownBuffDef;
 
   // ── 招式專屬 ──
   tier?: TechniqueTier;
@@ -244,6 +308,13 @@ export interface CardInstance {
   defId: string;
 }
 
+/** 冷卻區的一張卡 */
+export interface CooldownCard {
+  card: CardInstance;
+  counter: number;
+  maxCounter: number;
+}
+
 /** 生命區的一張卡。橫置 = 本回合已支付費用，重置階段會復原 */
 export interface LifeCard {
   card: CardInstance;
@@ -277,6 +348,7 @@ export interface TurnStats {
 
 export interface SideState {
   seat: Seat;
+  character: CharacterId;
   /** 任務完成數，即等級 */
   level: number;
   deck: CardInstance[];
@@ -288,6 +360,16 @@ export interface SideState {
   levelZone: CardInstance[];
   questDeck: CardInstance[];
   currentQuest: CardInstance | null;
+  /** 氣功專屬：冷卻區 */
+  cooldownZone: CooldownCard[];
+  /** 魔法專屬：本回合已詠唱的招式卡 */
+  chantedCards: CardInstance[];
+  /** 本回合已詠唱次數（上限 RULES.chantsPerTurn） */
+  chantsUsedThisTurn: number;
+  /** 免費卡清單（例如拋下狠話讓替罪羊免費） */
+  freeNextCards: string[];
+  /** 替罪羊：下個對手回合中免疫特技、密技傷害與效果 */
+  immuneTrickSecretNextTurn: boolean;
   stats: TurnStats;
   /** 本回合已使用的事件卡數（上限 RULES.eventsPerTurn） */
   eventsUsedThisTurn: number;
@@ -304,11 +386,19 @@ export interface CombatPlay {
   damage: number;
 }
 
+export interface ChantCombatPlay {
+  card: CardInstance;
+  damage: number;
+  guardReduction?: number;
+}
+
 export interface CombatState {
   attacker: Seat;
   defender: Seat;
   /** 出招步驟打出的招式，依 tier 順序 */
   plays: CombatPlay[];
+  /** 詠唱特殊出招 */
+  chantPlays: ChantCombatPlay[];
   /** 防禦判定步驟翻開的防禦卡 */
   defenseCards: CardInstance[];
   /** 防禦值總和 */

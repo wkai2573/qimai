@@ -16,8 +16,9 @@ import { cardArt } from './card-art';
 import { isDragGesture, isInsideDropZone } from './drag-utils';
 import { DEFAULT_CARD_WIDTH, computeHandSpacing } from './hand-layout';
 import { card } from './game/cards';
+import { CHARACTERS, CHARACTER_IDS, type CharacterDef } from './game/characters';
 import { GameStore, SPEED_OPTIONS, type FxPopup, type NpcSpeed, type PileKind } from './game-store';
-import { PHASE_LABEL, RULES, type CardInstance, type Phase, type Seat } from './game/types';
+import { PHASE_LABEL, RULES, type CardInstance, type CharacterId, type Phase, type Seat } from './game/types';
 import { RULE_SECTIONS } from './rules';
 
 /** 是否已看過規則；第一次遊玩會自動打開規則說明 */
@@ -90,6 +91,40 @@ export class App {
   setSpeed(speed: NpcSpeed): void {
     this.store.setNpcSpeed(speed);
     this.showSettings.set(false);
+  }
+
+  // ── 角色選擇 ──
+  readonly characters = CHARACTERS;
+  readonly characterIds = CHARACTER_IDS;
+  readonly showHeroSelect = signal(true);
+  readonly selectedPlayerChar = signal<CharacterId>('rage');
+  readonly selectedNpcChar = signal<CharacterId | 'random'>('random');
+
+  readonly playerCharDef = computed(() => CHARACTERS[this.store.playerChar()]);
+  readonly npcCharDef = computed(() => CHARACTERS[this.store.npcChar()]);
+  readonly selectedNpcTitle = computed(() =>
+    this.selectedNpcChar() === 'random' ? '隨機對手' : CHARACTERS[this.selectedNpcChar() as CharacterId].title,
+  );
+
+  openHeroSelect(): void {
+    this.selectedPlayerChar.set(this.store.playerChar());
+    this.selectedNpcChar.set(this.store.npcChar());
+    this.showHeroSelect.set(true);
+  }
+
+  closeHeroSelect(): void {
+    this.showHeroSelect.set(false);
+  }
+
+  startSelectedGame(): void {
+    const p = this.selectedPlayerChar();
+    let n = this.selectedNpcChar();
+    if (n === 'random') {
+      const candidates: CharacterId[] = ['rage', 'mage', 'qigong'];
+      n = candidates[Math.floor(Math.random() * candidates.length)];
+    }
+    this.store.newGame(undefined, p, n);
+    this.showHeroSelect.set(false);
   }
 
   // ── 規則說明 ──
@@ -283,6 +318,8 @@ export class App {
         ...side.deck,
         ...side.anger,
         ...side.discard,
+        ...side.cooldownZone.map((cd) => cd.card),
+        ...side.chantedCards,
         ...(side.currentQuest ? [side.currentQuest] : []),
       ];
       const hit = pool.find((c) => c.iid === iid);
@@ -433,6 +470,10 @@ export class App {
         return side.levelZone;
       case 'questDeck':
         return side.questDeck;
+      case 'cooldown':
+        return side.cooldownZone.map((cd) => cd.card);
+      case 'chant':
+        return side.chantedCards;
       default:
         return [];
     }
@@ -450,8 +491,15 @@ export class App {
       life: '生命區',
       level: '已達成任務',
       questDeck: '任務牌組',
+      cooldown: '冷卻區',
+      chant: '詠唱區',
     };
     return `${who}${names[view.kind]}（${this.pileCards().length} 張）`;
+  });
+
+  readonly playerNonEquipBuffs = computed(() => {
+    const eqNames = new Set(this.player().equipment.map((e) => card(e.defId).name));
+    return this.player().buffs.filter((b) => !eqNames.has(b.source));
   });
 
   /** 牌組內容是隱藏資訊，不提供檢視 */

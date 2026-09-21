@@ -62,6 +62,15 @@ const SIZE_CLASS: Record<CardSize, string> = {
               }
             </div>
           }
+
+          <!-- 特性標記 -->
+          @if (def().chant) {
+            <span class="absolute bottom-0.5 left-0.5 rounded bg-sky-950/90 px-1 py-px text-[7px] font-bold text-sky-300 ring-1 ring-sky-500/50" title="可於主要階段詠唱">詠</span>
+          } @else if (def().cooldown) {
+            <span class="absolute bottom-0.5 left-0.5 rounded bg-emerald-950/90 px-1 py-px text-[7px] font-bold text-emerald-300 ring-1 ring-emerald-500/50" title="冷卻卡">冷{{ def().cooldown }}</span>
+          } @else if (def().toAngerBottom) {
+            <span class="absolute bottom-0.5 left-0.5 rounded bg-rose-950/90 px-1 py-px text-[7px] font-bold text-rose-300 ring-1 ring-rose-500/50" title="使用後進入怒底">怒底</span>
+          }
         </div>
 
         @if (exhausted()) {
