@@ -11,9 +11,9 @@
 
 import { card } from './cards';
 import { playTechnique, techniquePlayability } from './combat';
-import { enterCombat, playCard, resolveBurst } from './engine';
+import { chantTechnique, enterCombat, playCard, resolveBurst } from './engine';
 import type { CardInstance, GameState, Seat } from './types';
-import { TECHNIQUE_ORDER } from './types';
+import { RULES, TECHNIQUE_ORDER } from './types';
 
 // ─────────────────────────────────────────────
 // 爆發階段
@@ -49,7 +49,7 @@ function shouldPlay(state: GameState, seat: Seat, inst: CardInstance): boolean {
 
   switch (def.kind) {
     case 'technique':
-      return false; // 招式只在戰鬥階段出
+      return false; // 招式常規只在戰鬥階段出（詠唱由另外的邏輯判斷）
 
     case 'equipment':
       return side.level >= (def.levelRequirement ?? 1);
@@ -83,6 +83,22 @@ export function mainPhase(state: GameState, seat: Seat): number {
     });
 
     let acted = false;
+
+    // 先嘗試詠唱（若有詠唱卡且未詠唱過）
+    if (state.sides[seat].chantsUsedThisTurn < RULES.chantsPerTurn) {
+      for (const inst of hand) {
+        const def = card(inst.defId);
+        if (def.chant) {
+          if (chantTechnique(state, seat, inst.iid).ok) {
+            played++;
+            acted = true;
+            break;
+          }
+        }
+      }
+      if (acted) continue;
+    }
+
     for (const inst of hand) {
       if (!shouldPlay(state, seat, inst)) continue;
       if (playCard(state, seat, inst.iid).ok) {

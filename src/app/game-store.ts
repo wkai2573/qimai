@@ -4,6 +4,7 @@ import { npcCombatPhase, npcMainPhase, npcShouldBurst } from './game/ai';
 import { card } from './game/cards';
 import { clearCombat, finishCombat, playTechnique, techniquePlayability } from './game/combat';
 import {
+  chantTechnique,
   createGame,
   endTurnFully,
   enterCombat,
@@ -12,10 +13,12 @@ import {
   resolveChoice,
   resolveRebuild,
 } from './game/engine';
-import type { CardInstance, GameState, LogEntry, Seat } from './game/types';
+import { canPlayWithCooldown, modifier } from './game/internal';
+import type { CardInstance, CharacterId, GameState, LogEntry, Seat } from './game/types';
+import { RULES } from './game/types';
 
 /** 可以點開查看內容的堆疊區 */
-export type PileKind = 'deck' | 'anger' | 'discard' | 'life' | 'level' | 'questDeck';
+export type PileKind = 'deck' | 'anger' | 'discard' | 'life' | 'level' | 'questDeck' | 'cooldown' | 'chant';
 
 export interface PileView {
   seat: Seat;
@@ -99,6 +102,10 @@ export class GameStore {
   /** 對局節奏，影響 NPC 動作間隔與戰鬥結算的停頓 */
   readonly npcSpeed = signal<NpcSpeed>(loadSpeed());
 
+  /** 玩家與 NPC 選擇的角色 */
+  readonly playerChar = signal<CharacterId>('rage');
+  readonly npcChar = signal<CharacterId>('mage');
+
   /** 正在查看的堆疊區，null 表示沒開 */
   readonly pileView = signal<PileView | null>(null);
 
@@ -149,10 +156,15 @@ export class GameStore {
   // 對局控制
   // ─────────────────────────────────────────────
 
-  newGame(seed?: number): void {
+  newGame(seed?: number, playerChar?: CharacterId, npcChar?: CharacterId): void {
+    if (playerChar) this.playerChar.set(playerChar);
+    if (npcChar) this.npcChar.set(npcChar);
     this.npcThinking.set(false);
     this.popups.set([]);
-    const next = createGame(seed ?? GameStore.randomSeed());
+    const next = createGame(seed ?? GameStore.randomSeed(), {
+      playerCharacter: this.playerChar(),
+      npcCharacter: this.npcChar(),
+    });
     this.logCursor = next.log.length;
     this._state.set(next);
     this.afterChange();
@@ -206,7 +218,30 @@ export class GameStore {
 
   play(iid: number): void {
     if (!this.playerCanAct()) return;
-    this.mutate((s) => playCard(s, 'player', iid));
+    const s = this._state();
+    const inst = s.sides.player.hand.find((c) => c.iid === iid);
+
+    // 主要階段點擊帶有詠唱特性的招式卡，直接進行詠唱
+    if (s.phase === 'main' && inst && card(inst.defId).kind === 'technique' && card(inst.defId).chant) {
+      this.chant(iid);
+      return;
+    }
+
+    if (s.phase === 'combat') {
+      this.mutate((st) => playTechnique(st, 'player', iid));
+    } else {
+      this.mutate((st) => playCard(st, 'player', iid));
+    }
+  }
+
+  chant(iid: number): void {
+    if (!this.playerCanAct()) return;
+    const s = this._state();
+    const res = chantTechnique(s, 'player', iid);
+    if (res.ok) {
+      this.publish(s);
+      this.afterChange();
+    }
   }
 
   enterCombatPhase(): void {
@@ -282,7 +317,14 @@ export class GameStore {
     const def = card(inst.defId);
     const side = s.sides.player;
 
-    if (def.kind === 'technique') return false;
+    if (!canPlayWithCooldown(s, 'player', inst.defId)) return false;
+
+    if (def.kind === 'technique') {
+      if (!def.chant || side.chantsUsedThisTurn >= RULES.chantsPerTurn) return false;
+      const chantCost = Math.max(0, def.chant.cost + modifier(s, 'player', 'cost'));
+      return side.life.filter((l) => !l.tapped).length >= chantCost;
+    }
+
     if (def.kind === 'event' && side.eventsUsedThisTurn >= 1) return false;
 
     if (def.kind === 'equipment') {
@@ -294,8 +336,14 @@ export class GameStore {
       if (used >= (limits[slot] ?? 1)) return false;
     }
 
-    const cost = Math.max(0, def.cost);
-    return side.life.filter((l) => !l.tapped).length >= cost;
+    let cost = Math.max(0, def.cost + modifier(s, 'player', 'cost'));
+    if (side.freeNextCards.includes(def.id)) cost = 0;
+    if (side.life.filter((l) => !l.tapped).length < cost) return false;
+
+    const angerCost = def.angerCost ?? 0;
+    if (side.anger.length < angerCost) return false;
+
+    return true;
   }
 
   // ─────────────────────────────────────────────

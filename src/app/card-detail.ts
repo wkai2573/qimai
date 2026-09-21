@@ -28,10 +28,22 @@ import { CARD_KIND_LABEL, EQUIP_LABEL, TECHNIQUE_LABEL } from './game/types';
 
         <!-- 資訊 -->
         <div class="rounded-lg border border-slate-700 bg-slate-900 p-2.5">
-          <div class="flex items-center gap-1.5">
+          <div class="flex flex-wrap items-center gap-1.5">
             <span class="rounded px-1.5 py-0.5 text-[10px] font-bold" [class]="badgeClass()">{{ typeLabel() }}</span>
             @if (def()!.levelRequirement) {
               <span class="tag tag--amber">等級 {{ def()!.levelRequirement }}+</span>
+            }
+            @if (def()!.toAngerBottom) {
+              <span class="tag tag--rose">怒底</span>
+            }
+            @if (def()!.angerCost) {
+              <span class="tag tag--rose">怒氣費用 {{ def()!.angerCost }}</span>
+            }
+            @if (def()!.chant) {
+              <span class="tag tag--sky">詠唱({{ def()!.chant!.cost }})</span>
+            }
+            @if (def()!.cooldown) {
+              <span class="tag tag--emerald">冷卻({{ def()!.cooldown }})</span>
             }
           </div>
 
@@ -50,6 +62,18 @@ import { CARD_KIND_LABEL, EQUIP_LABEL, TECHNIQUE_LABEL } from './game/types';
               <div class="stat-box__value text-sky-300">{{ def()!.guard }}</div>
             </div>
           </div>
+
+          @if (def()!.chant; as ch) {
+            <div class="mt-2 rounded border border-sky-600/40 bg-sky-950/30 px-2 py-1 text-[10px] text-sky-200">
+              詠唱特性：主要階段橫置 {{ ch.cost }} 生命打出；戰鬥階段額外出招。{{ ch.text }}
+            </div>
+          }
+
+          @if (def()!.cooldown; as cd) {
+            <div class="mt-2 rounded border border-emerald-600/40 bg-emerald-950/30 px-2 py-1 text-[10px] text-emerald-200">
+              冷卻特性：使用後進入冷卻區計時 {{ cd }} 回合{{ def()!.storage ? '（儲存上限 ' + def()!.storage + ' 張）' : '' }}。{{ def()!.cooldownBuff?.text ?? '' }}
+            </div>
+          }
 
           @if (def()!.comboBonus; as combo) {
             <div class="mt-2 rounded border border-amber-600/40 bg-amber-950/30 px-2 py-1 text-[10px] text-amber-200">
@@ -211,6 +235,10 @@ export class CardDetailComponent {
         return `生命區 ${lib.n} 張以上`;
       case 'levelAtLeast':
         return `等級 ${lib.n} 以上`;
+      case 'cooldownCountAtLeast':
+        return `冷卻區卡牌 ${lib.n} 張以上`;
+      case 'hasChantedThisTurn':
+        return '本回合已有詠唱過招式';
       case 'equippedSlot':
         return `裝備了${EQUIP_LABEL[lib.slot]}`;
       default:

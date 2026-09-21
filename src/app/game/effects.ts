@@ -14,6 +14,7 @@ import {
   millToAnger,
   nameOf,
   recover,
+  seatLabel,
   withRng,
 } from './internal';
 import type {
@@ -25,6 +26,7 @@ import type {
   GameState,
   Seat,
 } from './types';
+import { OTHER_SEAT } from './types';
 
 // ─────────────────────────────────────────────
 // 篩選
@@ -87,6 +89,12 @@ export function checkCondition(state: GameState, seat: Seat, cond: Condition): b
 
     case 'levelAtLeast':
       return side.level >= cond.n;
+
+    case 'cooldownCountAtLeast':
+      return side.cooldownZone.length >= cond.n;
+
+    case 'hasChantedThisTurn':
+      return side.chantedCards.length > 0;
   }
 }
 
@@ -209,6 +217,98 @@ export function applyEffect(state: GameState, seat: Seat, effect: Effect, source
       log(state, seat, `${sourceName}：等級 +${effect.n}（目前 ${side.level}）。`, 'quest');
       break;
 
+    case 'rageSearchTech': {
+      const pool: CardInstance[] = [];
+      for (let i = 0; i < effect.look && side.anger.length > 0; i++) {
+        pool.push(side.anger.pop()!);
+      }
+      const techs = pool.filter((c) => card(c.defId).kind === 'technique');
+      const rest = pool.filter((c) => card(c.defId).kind !== 'technique');
+      side.hand.push(...techs);
+      side.discard.push(...rest);
+      log(
+        state,
+        seat,
+        `${sourceName}：從怒氣區取得 ${techs.length} 張招式卡（${techs.map(nameOf).join('、')}），其餘 ${rest.length} 張送入棄牌區。`,
+        'info',
+      );
+      break;
+    }
+
+    case 'recoverHandCount': {
+      const cnt = side.hand.length;
+      recover(state, seat, cnt);
+      log(state, seat, `${sourceName}：依手牌數回復 ${cnt} 張卡至牌組頂。`, 'info');
+      break;
+    }
+
+    case 'forceOpponentHandToAnger': {
+      const oppSeat: Seat = OTHER_SEAT[seat];
+      const opp = state.sides[oppSeat];
+      if (effect.conditionHandAtLeast && opp.hand.length < effect.conditionHandAtLeast) {
+        log(state, seat, `${sourceName}：對手手牌未達 ${effect.conditionHandAtLeast} 張，未觸發。`, 'info');
+        break;
+      }
+      if (opp.hand.length > 0) {
+        const idx = withRng(state, (rng) => rng.int(opp.hand.length));
+        const c = opp.hand.splice(idx, 1)[0];
+        opp.anger.unshift(c);
+        log(state, oppSeat, `【迫令怒底】${seatLabel(oppSeat)}的手牌「${nameOf(c)}」被移入怒氣區底。`, 'combat');
+      }
+      break;
+    }
+
+    case 'opponentDiscardTechnique': {
+      const oppSeat: Seat = OTHER_SEAT[seat];
+      const opp = state.sides[oppSeat];
+      const techIndices = opp.hand
+        .map((c: CardInstance, i: number) => (card(c.defId).kind === 'technique' ? i : -1))
+        .filter((i: number) => i >= 0);
+
+      if (techIndices.length > 0) {
+        const pickIdx = techIndices[withRng(state, (rng) => rng.int(techIndices.length))];
+        const discarded = opp.hand.splice(pickIdx, 1)[0];
+        opp.discard.push(discarded);
+        log(state, oppSeat, `【迫令捨棄】${seatLabel(oppSeat)}被迫捨棄招式卡「${nameOf(discarded)}」。`, 'combat');
+      } else {
+        log(state, oppSeat, `【展示手牌】${seatLabel(oppSeat)}手中無招式卡可捨棄。`, 'info');
+      }
+      break;
+    }
+
+    case 'freeCardNext':
+      side.freeNextCards.push(effect.targetDefId);
+      log(state, seat, `${sourceName}：本回合下一張《${card(effect.targetDefId).name}》免費用。`, 'info');
+      break;
+
+    case 'immuneTrickSecret':
+      side.immuneTrickSecretNextTurn = true;
+      log(state, seat, `${sourceName}：對手下回合中我方不受特技與密技影響。`, 'info');
+      break;
+
+    case 'advanceCooldowns': {
+      const remaining: typeof side.cooldownZone = [];
+      for (const cd of side.cooldownZone) {
+        cd.counter += effect.n;
+        if (cd.counter >= cd.maxCounter) {
+          side.discard.push(cd.card);
+          log(state, seat, `「${nameOf(cd.card)}」加速冷卻完成，進入棄牌區。`, 'info');
+        } else {
+          remaining.push(cd);
+        }
+      }
+      side.cooldownZone = remaining;
+      break;
+    }
+
+    case 'finishCooldown':
+      if (side.cooldownZone.length > 0) {
+        const cd = side.cooldownZone.shift()!;
+        side.discard.push(cd.card);
+        log(state, seat, `「${nameOf(cd.card)}」立即冷卻完成，進入棄牌區。`, 'info');
+      }
+      break;
+
     case 'conditional':
       if (checkCondition(state, seat, effect.when)) {
         log(state, seat, `${sourceName}：條件成立！`, 'combat');
@@ -237,6 +337,12 @@ export function describeModifier(target: string): string {
       return '招式傷害';
     case 'hiddenDamage':
       return '密奧義傷害';
+    case 'chantDamage':
+      return '詠唱傷害';
+    case 'damageReduction':
+      return '傷害減免';
+    case 'immuneTrickSecret':
+      return '免疫特技密技';
     case 'guardValue':
       return '防禦值';
     case 'drawCount':
