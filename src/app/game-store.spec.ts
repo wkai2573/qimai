@@ -2,6 +2,8 @@ import { TestBed } from '@angular/core/testing';
 import { describe, expect, it } from 'vitest';
 
 import { GameStore, SPEED_OPTIONS, speedMultiplier } from './game-store';
+import { RAGE_MAIN_DECK } from './game/cards';
+import type { P2PMessage } from './p2p/p2p-types';
 
 describe('對局節奏設定', () => {
   it('每一段都有中文標籤與唯一的識別值', () => {
@@ -80,5 +82,55 @@ describe('GameStore 的 signal 通知', () => {
     // 這正是問題所在：參考不變，所以依賴它的 computed 不會被通知
     // （App 端靠 [...array] 建立副本解決）
     expect(countBefore).toBeGreaterThan(0);
+  });
+});
+
+// ─────────────────────────────────────────────
+// P2P：客人的自訂牌組
+// ─────────────────────────────────────────────
+
+describe('P2P 房主開局時採用客人的自訂牌組', () => {
+  beforeEach(() => {
+    TestBed.configureTestingModule({});
+  });
+
+  /** 模擬收到網路訊息（handleP2PMessage 是 private，由 P2PService 的 onMessage 呼叫） */
+  function receive(store: GameStore, msg: P2PMessage): void {
+    (store as unknown as { handleP2PMessage(m: P2PMessage): void }).handleP2PMessage(msg);
+  }
+
+  /** 開局時客人（npc 座位）的主牌組分散在牌堆、手牌與生命區 */
+  function guestDeckCounts(store: GameStore): Record<string, number> {
+    const side = store.state().sides.npc;
+    const counts: Record<string, number> = {};
+    for (const c of [...side.deck, ...side.hand, ...side.life.map((l) => l.card)]) {
+      counts[c.defId] = (counts[c.defId] ?? 0) + 1;
+    }
+    return counts;
+  }
+
+  it('收到 GUEST_HELLO 附帶的牌組後，開局與重開都使用該牌組', () => {
+    const store = TestBed.inject(GameStore);
+    const custom = { ...RAGE_MAIN_DECK, rg_tech_nuce: 3, cm_tiandi: 1 };
+
+    receive(store, { type: 'GUEST_HELLO', hero: 'rage', deck: custom });
+    store.startP2PGame('mage', store.npcChar(), 123);
+
+    expect(store.state().sides.npc.character).toBe('rage');
+    expect(guestDeckCounts(store)).toEqual(custom);
+
+    store.restartSameSeed();
+    expect(guestDeckCounts(store)).toEqual(custom);
+  });
+
+  it('客人送來的牌組不合法時，改用角色預設牌組', () => {
+    const store = TestBed.inject(GameStore);
+    // 混入秘法專屬卡，且總數變成 51 張
+    const illegal = { ...RAGE_MAIN_DECK, mg_tech_huoqiu: 1 };
+
+    receive(store, { type: 'GUEST_HELLO', hero: 'rage', deck: illegal });
+    store.startP2PGame('mage', store.npcChar(), 123);
+
+    expect(guestDeckCounts(store)).toEqual({ ...RAGE_MAIN_DECK });
   });
 });

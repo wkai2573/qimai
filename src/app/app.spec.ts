@@ -1,7 +1,10 @@
 import { TestBed } from '@angular/core/testing';
 
 import { App } from './app';
+import { RAGE_MAIN_DECK } from './game/cards';
+import { createGame } from './game/engine';
 import { PHASE_LABEL, type Phase } from './game/types';
+import type { P2PMessage } from './p2p/p2p-types';
 
 describe('App', () => {
   beforeEach(async () => {
@@ -315,5 +318,41 @@ describe('App', () => {
 
     app.openPile('player', 'discard');
     expect(app.pileHidden()).toBe(false);
+  });
+
+  it('P2P 客人連線後在大廳換英雄或改牌組，會把最新的英雄與牌組送給房主', async () => {
+    const fixture = TestBed.createComponent(App);
+    const app = fixture.componentInstance;
+    await fixture.whenStable();
+
+    const sent: P2PMessage[] = [];
+    vi.spyOn(app.p2p, 'send').mockImplementation((msg) => void sent.push(msg));
+    app.selectedPlayerChar.set('rage');
+    app.p2p.role.set('guest');
+    app.p2p.status.set('connected');
+    await fixture.whenStable();
+    expect(sent.at(-1)).toEqual({ type: 'GUEST_HELLO', hero: 'rage', deck: app.playerCustomDeck() });
+
+    app.selectedPlayerChar.set('qigong');
+    await fixture.whenStable();
+    expect(sent.at(-1)).toMatchObject({ type: 'GUEST_HELLO', hero: 'qigong' });
+
+    // 存檔後 playerCustomDeck 要讀到新牌組，並重新送給房主
+    app.selectedPlayerChar.set('rage');
+    const custom = { ...RAGE_MAIN_DECK, rg_tech_nuce: 3, cm_tiandi: 1 };
+    app.onDeckSaved(custom);
+    await fixture.whenStable();
+    expect(app.playerCustomDeck()).toEqual(custom);
+    expect(sent.at(-1)).toEqual({ type: 'GUEST_HELLO', hero: 'rage', deck: custom });
+
+    // 對局進行中不再送，以免房主端的對手角色與盤面不符
+    const game = createGame(1, { playerCharacter: 'mage', npcCharacter: 'rage', manualLifeSetupBoth: true, mode: 'p2p' });
+    app.store.initAsP2PGuest(1, 'mage', 'rage', game);
+    await fixture.whenStable();
+    const countInGame = sent.length;
+    app.showHeroSelect.set(true);
+    app.selectedPlayerChar.set('qigong');
+    await fixture.whenStable();
+    expect(sent.length).toBe(countInGame);
   });
 });

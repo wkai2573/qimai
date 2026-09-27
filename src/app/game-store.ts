@@ -159,6 +159,9 @@ export class GameStore {
   readonly playerChar = signal<CharacterId>('rage');
   readonly npcChar = signal<CharacterId>('mage');
 
+  /** P2P 房主收到的客人自訂牌組；null 表示沒收到或驗證不過，開局改用角色預設牌組 */
+  private guestDeck: Record<string, number> | null = null;
+
   /** 正在查看的堆疊區，null 表示沒開 */
   readonly pileView = signal<PileView | null>(null);
 
@@ -271,6 +274,7 @@ export class GameStore {
       manualLifeSetupBoth: true,
       mode: 'p2p',
       mainDeck: hDeck,
+      npcMainDeck: this.guestDeck ?? undefined,
     });
     this.logCursor = next.log.length;
     this._state.set(next);
@@ -619,6 +623,8 @@ export class GameStore {
   private handleP2PMessage(msg: P2PMessage): void {
     if (msg.type === 'GUEST_HELLO') {
       this.npcChar.set(msg.hero);
+      // 牌組來自網路，房主端再驗證一次，避免非法牌組讓引擎出錯
+      this.guestDeck = msg.deck && validateMainDeck(msg.deck, msg.hero).ok ? msg.deck : null;
     } else if (msg.type === 'GAME_START') {
       this.initAsP2PGuest(msg.seed, msg.hostHero, msg.guestHero, msg.state);
     } else if (msg.type === 'ACTION') {

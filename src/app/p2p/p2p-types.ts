@@ -15,7 +15,7 @@ export type GameAction =
 
 /** P2P 網路傳輸訊息 */
 export type P2PMessage =
-  | { type: 'GUEST_HELLO'; hero: CharacterId }
+  | { type: 'GUEST_HELLO'; hero: CharacterId; deck: Record<string, number> }
   | {
       type: 'GAME_START';
       seed: number;

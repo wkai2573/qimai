@@ -137,7 +137,12 @@ export class App {
 
   // ── 牌組構築 ──
   readonly isDeckBuilderOpen = signal(false);
-  readonly playerCustomDeck = computed(() => this.store.getCustomDeck(this.selectedPlayerChar()));
+  /** 牌組存檔後遞增；localStorage 不是 signal，靠它讓 playerCustomDeck 重新讀取 */
+  private readonly deckVersion = signal(0);
+  readonly playerCustomDeck = computed(() => {
+    this.deckVersion();
+    return this.store.getCustomDeck(this.selectedPlayerChar());
+  });
 
   openDeckBuilder(char?: CharacterId): void {
     if (char) {
@@ -152,6 +157,7 @@ export class App {
 
   onDeckSaved(deck: Record<string, number>): void {
     this.store.saveCustomDeck(this.selectedPlayerChar(), deck);
+    this.deckVersion.update((v) => v + 1);
   }
 
   onDeckCardHover(event: CardHoverEvent | null): void {
@@ -205,10 +211,7 @@ export class App {
     this.isConnecting.set(true);
     try {
       await this.p2p.joinRoom(code);
-      this.p2p.send({
-        type: 'GUEST_HELLO',
-        hero: this.selectedPlayerChar(),
-      });
+      // GUEST_HELLO 由建構子裡的 effect 在連線後自動送出
       this.store.npcChar.set(this.selectedPlayerChar());
     } catch {
     } finally {
@@ -360,6 +363,17 @@ export class App {
       if (this.store.isGuest() && this.store.state().phase !== 'ended') {
         this.showHeroSelect.set(false);
       }
+    });
+
+    // 客人在大廳（或對局結束後）換英雄、改牌組時，把最新選擇告知房主；對局進行中不送，以免房主端角色與盤面不符
+    effect(() => {
+      if (this.p2p.role() !== 'guest' || this.p2p.status() !== 'connected' || !this.showHeroSelect()) return;
+      if (this.store.isGuest() && this.store.state().phase !== 'ended') return;
+      this.p2p.send({
+        type: 'GUEST_HELLO',
+        hero: this.selectedPlayerChar(),
+        deck: this.playerCustomDeck(),
+      });
     });
 
     // 容器尺寸改變（視窗縮放、日誌欄收合…）時重算
