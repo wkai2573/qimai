@@ -1338,13 +1338,20 @@
       (click)="closeDeckBuilder()"
     >
       <div class="h-full max-h-[92vh] w-full max-w-6xl shadow-2xl" (click)="$event.stopPropagation()">
-        <app-deck-builder
-          [character]="selectedPlayerChar()"
-          [initialDeck]="playerCustomDeck()"
-          (deckChange)="onDeckSaved($event)"
-          (close)="closeDeckBuilder()"
-          (cardHover)="onDeckCardHover($event)"
-        />
+        <!-- 組牌器只在這裡用到，拆成獨立 chunk 開啟時才載入 -->
+        @defer (on immediate) {
+          <app-deck-builder
+            [character]="selectedPlayerChar()"
+            [initialDeck]="playerCustomDeck()"
+            (deckChange)="onDeckSaved($event)"
+            (close)="closeDeckBuilder()"
+            (cardHover)="onDeckCardHover($event)"
+          />
+        } @placeholder {
+          <div class="flex h-full items-center justify-center rounded-xl border border-amber-500/40 bg-slate-900/95 text-sm text-slate-400">
+            組牌器載入中…
+          </div>
+        }
       </div>
     </div>
   }

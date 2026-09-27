@@ -709,18 +709,31 @@ export function applyEffect(state: GameState, seat: Seat, effect: Effect, source
     }
 
     case 'opponentDiscardTechnique': {
-      const techIndices = opp.hand
-        .map((c: CardInstance, i: number) => (card(c.defId).kind === 'technique' ? i : -1))
-        .filter((i: number) => i >= 0);
+      // 由對手自己挑要丟哪張招式
+      const techs = opp.hand.filter((c) => card(c.defId).kind === 'technique');
 
-      if (techIndices.length > 0) {
-        const pickIdx = techIndices[withRng(state, (rng) => rng.int(techIndices.length))];
-        const discarded = opp.hand.splice(pickIdx, 1)[0];
-        opp.discard.push(discarded);
-        log(state, oppSeat, `【迫令捨棄】${seatLabel(oppSeat)}被迫捨棄招式卡「${nameOf(discarded)}」。`, 'combat');
-      } else {
-        log(state, oppSeat, `【展示手牌】${seatLabel(oppSeat)}手中無招式卡可捨棄。`, 'info');
+      if (techs.length === 0) {
+        const shown = opp.hand.map((c) => `「${nameOf(c)}」`).join('') || '（沒有手牌）';
+        log(state, oppSeat, `【展示手牌】${seatLabel(oppSeat)}手中無招式卡可捨棄：${shown}`, 'info');
+        break;
       }
+      if (isHumanSeat(state, oppSeat)) {
+        pushPending(state, {
+          kind: 'discardFromHand',
+          seat: oppSeat,
+          prompt: `【${sourceName}】請選擇 1 張手牌中的招式捨棄`,
+          candidates: techs,
+          pick: 1,
+          selected: [],
+          source: sourceName,
+        });
+        log(state, oppSeat, `【${sourceName}】${seatLabel(oppSeat)}要選擇 1 張招式捨棄。`, 'system');
+        break;
+      }
+      const [c] = lowestValue(techs, 1);
+      removeFrom(opp.hand, c.iid);
+      opp.discard.push(c);
+      log(state, oppSeat, `【迫令捨棄】${seatLabel(oppSeat)}選擇捨棄招式卡「${nameOf(c)}」。`, 'combat');
       break;
     }
 

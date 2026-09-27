@@ -134,6 +134,47 @@ describe('DeckBuilderComponent', () => {
     expect(component.validation().ok).toBe(true);
   });
 
+  it('匯出目前牌組，清空後再匯入可以還原', () => {
+    const original = { ...component.deckCounts() };
+    component.openExport();
+    expect(component.ioMode()).toBe('export');
+    const text = component.ioText();
+    expect(text).toContain('character: rage');
+
+    component.clearDeck();
+    component.openImport();
+    component.ioText.set(text);
+    component.applyImport();
+
+    expect(component.ioMode()).toBeNull();
+    expect(component.deckCounts()).toEqual(original);
+    expect(component.validation().ok).toBe(true);
+  });
+
+  it('匯入失敗時保留原本牌組並顯示錯誤', () => {
+    const original = { ...component.deckCounts() };
+    component.openImport();
+    component.ioText.set('4 rg_tech_nuce\n2 mg_gaosu');
+    component.applyImport();
+
+    expect(component.ioMode()).toBe('import');
+    expect(component.ioErrors().length).toBe(1);
+    expect(component.deckCounts()).toEqual(original);
+
+    fixture.detectChanges();
+    const el: HTMLElement = fixture.nativeElement;
+    expect(el.querySelector('.deck-io-errors')?.textContent).toContain('不在「狂怒修羅」的卡池裡');
+  });
+
+  it('匯入的牌組不合規時照樣讀進來，由驗證提示玩家修正', () => {
+    component.openImport();
+    component.ioText.set('4 rg_tech_nuce');
+    component.applyImport();
+
+    expect(component.deckCounts()).toEqual({ rg_tech_nuce: 4 });
+    expect(component.validation().ok).toBe(false);
+  });
+
   it('搜尋與分類篩選能精確過濾卡庫', () => {
     component.searchQuery.set('正氣拳');
     const filtered = component.filteredPool();

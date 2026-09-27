@@ -1,4 +1,4 @@
-import { Component, OnInit, computed, inject, input, output, signal } from '@angular/core';
+import { Component, ElementRef, OnInit, computed, inject, input, output, signal, viewChild } from '@angular/core';
 import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 
 import { cardArt } from './card-art';
@@ -11,6 +11,7 @@ import {
   type DeckValidation,
 } from './game/cards';
 import { CHARACTERS } from './game/characters';
+import { DECK_TEXT_MAX_LENGTH, formatDeck, parseDeck, sortedDeckEntries } from './game/deck-code';
 import {
   CARD_KIND_LABEL,
   EQUIP_LABEL,
@@ -33,7 +34,7 @@ export interface CardHoverEvent {
   selector: 'app-deck-builder',
   standalone: true,
   template: `
-    <div class="deck-builder flex h-full max-h-[90vh] flex-col overflow-hidden rounded-xl border border-amber-500/40 bg-slate-900/98 shadow-2xl backdrop-blur-lg">
+    <div class="deck-builder relative flex h-full max-h-[90vh] flex-col overflow-hidden rounded-xl border border-amber-500/40 bg-slate-900/98 shadow-2xl backdrop-blur-lg">
       <!-- 頂部標題與狀態列 -->
       <header class="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-slate-800 bg-slate-950/80 px-5 py-3">
         <div class="flex items-center gap-3">
@@ -81,6 +82,22 @@ export interface CardHoverEvent {
           </div>
 
           <!-- 功能按鈕 -->
+          <button
+            type="button"
+            class="btn btn--ghost btn--sm !px-2.5 !py-1 text-xs"
+            title="從文字或檔案匯入牌組"
+            (click)="openImport()"
+          >
+            ⇩ 匯入
+          </button>
+          <button
+            type="button"
+            class="btn btn--ghost btn--sm !px-2.5 !py-1 text-xs"
+            title="把目前牌組匯出成文字，可以複製分享或下載"
+            (click)="openExport()"
+          >
+            ⇧ 匯出
+          </button>
           <button
             type="button"
             class="btn btn--ghost btn--sm !px-2.5 !py-1 text-xs"
@@ -350,6 +367,81 @@ export interface CardHoverEvent {
           </footer>
         </section>
       </div>
+
+      <!-- ══════════ 匯入 / 匯出面板 ══════════ -->
+      @if (ioMode(); as mode) {
+        <div
+          class="absolute inset-0 z-20 flex items-center justify-center bg-slate-950/85 p-4 backdrop-blur-sm"
+          (click)="closeIo()"
+        >
+          <div
+            class="deck-io flex max-h-full w-full max-w-lg flex-col gap-3 rounded-xl border border-amber-500/40 bg-slate-900 p-4 shadow-2xl"
+            (click)="$event.stopPropagation()"
+          >
+            <div class="flex items-center justify-between">
+              <h3 class="text-sm font-black text-amber-300">
+                {{ mode === 'export' ? '⇧ 匯出牌組' : '⇩ 匯入牌組' }}
+              </h3>
+              <button type="button" class="text-xs text-slate-400 hover:text-slate-200" (click)="closeIo()">✕</button>
+            </div>
+
+            <p class="text-[11px] leading-relaxed text-slate-400">
+              @if (mode === 'export') {
+                複製下面的文字分享給朋友，或下載成檔案保存。
+              } @else {
+                貼上匯出的牌組文字，或選擇 .txt 檔。每行格式為「張數 卡牌ID」，# 開頭的行會略過。
+                匯入後還要按「完成構築」才會存檔。
+              }
+            </p>
+
+            <textarea
+              #ioArea
+              class="h-64 w-full resize-none rounded-lg border border-slate-700 bg-slate-950/80 p-2.5 font-mono text-[11px] leading-relaxed text-slate-200 placeholder-slate-600 focus:border-amber-400 focus:outline-none"
+              spellcheck="false"
+              [readOnly]="mode === 'export'"
+              [placeholder]="'character: ' + character() + '\n4 卡牌ID\n…'"
+              [value]="ioText()"
+              (input)="ioText.set($any($event.target).value); ioErrors.set([])"
+            ></textarea>
+
+            @if (ioErrors().length > 0) {
+              <ul class="deck-io-errors max-h-28 space-y-0.5 overflow-y-auto rounded-lg border border-rose-600/50 bg-rose-950/40 px-3 py-2 text-[11px] text-rose-200">
+                @for (err of ioErrors(); track $index) {
+                  <li>⚠️ {{ err }}</li>
+                }
+              </ul>
+            }
+
+            <div class="flex flex-wrap items-center justify-end gap-2">
+              @if (ioNotice()) {
+                <span class="mr-auto text-[11px] font-semibold text-emerald-300">{{ ioNotice() }}</span>
+              }
+              @if (mode === 'export') {
+                <button type="button" class="btn btn--ghost btn--sm !px-3 !py-1 text-xs" (click)="downloadExport()">
+                  ⤓ 下載 .txt
+                </button>
+                <button type="button" class="btn btn--amber btn--sm !px-4 !py-1.5 text-xs font-bold" (click)="copyExport()">
+                  ⧉ 複製
+                </button>
+              } @else {
+                <label class="btn btn--ghost btn--sm mr-auto cursor-pointer !px-3 !py-1 text-xs">
+                  📂 選擇檔案
+                  <input type="file" accept=".txt,.json,text/plain,application/json" class="hidden" (change)="onImportFile($event)" />
+                </label>
+                <button type="button" class="btn btn--ghost btn--sm !px-3 !py-1 text-xs" (click)="closeIo()">取消</button>
+                <button
+                  type="button"
+                  class="btn btn--amber btn--sm !px-4 !py-1.5 text-xs font-bold"
+                  [disabled]="!ioText().trim()"
+                  (click)="applyImport()"
+                >
+                  ✓ 匯入
+                </button>
+              }
+            </div>
+          </div>
+        </div>
+      }
     </div>
   `,
   styles: [`
@@ -383,6 +475,13 @@ export class DeckBuilderComponent implements OnInit {
 
   // 拖曳狀態
   readonly isDeckDragOver = signal<boolean>(false);
+
+  // 匯入 / 匯出面板
+  readonly ioMode = signal<'import' | 'export' | null>(null);
+  readonly ioText = signal('');
+  readonly ioErrors = signal<string[]>([]);
+  readonly ioNotice = signal('');
+  private readonly ioArea = viewChild<ElementRef<HTMLTextAreaElement>>('ioArea');
 
   readonly filterTabs = [
     { id: 'all', label: '全部' },
@@ -437,43 +536,7 @@ export class DeckBuilderComponent implements OnInit {
   });
 
   // 牌組卡片條目列表（排序：密奧義 -> 奧義 -> 密技 -> 特技 -> 行動 -> 事件 -> 裝備）
-  readonly deckEntries = computed(() => {
-    const entries: { def: CardDef; count: number }[] = [];
-    for (const [id, count] of Object.entries(this.deckCounts())) {
-      if (count <= 0) continue;
-      const def = tryCard(id);
-      if (def) entries.push({ def, count });
-    }
-
-    const kindWeight: Record<string, number> = {
-      technique: 1,
-      action: 2,
-      event: 3,
-      equipment: 4,
-    };
-    const tierWeight: Record<string, number> = {
-      hidden: 1,
-      ultimate: 2,
-      secret: 3,
-      trick: 4,
-    };
-
-    entries.sort((a, b) => {
-      const kwA = kindWeight[a.def.kind] ?? 9;
-      const kwB = kindWeight[b.def.kind] ?? 9;
-      if (kwA !== kwB) return kwA - kwB;
-
-      if (a.def.kind === 'technique' && b.def.kind === 'technique') {
-        const twA = tierWeight[a.def.tier ?? ''] ?? 9;
-        const twB = tierWeight[b.def.tier ?? ''] ?? 9;
-        if (twA !== twB) return twA - twB;
-      }
-
-      return a.def.cost - b.def.cost;
-    });
-
-    return entries;
-  });
+  readonly deckEntries = computed(() => sortedDeckEntries(this.deckCounts()));
 
   ngOnInit(): void {
     // 初始化牌組
@@ -531,6 +594,75 @@ export class DeckBuilderComponent implements OnInit {
     if (!this.validation().ok) return;
     this.deckChange.emit(this.deckCounts());
     this.close.emit();
+  }
+
+  // ─────────────────────────────────────────────
+  // 匯入 / 匯出
+  // ─────────────────────────────────────────────
+
+  openExport(): void {
+    this.ioText.set(formatDeck(this.deckCounts(), this.character()));
+    this.ioErrors.set([]);
+    this.ioNotice.set('');
+    this.ioMode.set('export');
+  }
+
+  openImport(): void {
+    this.ioText.set('');
+    this.ioErrors.set([]);
+    this.ioNotice.set('');
+    this.ioMode.set('import');
+  }
+
+  closeIo(): void {
+    this.ioMode.set(null);
+  }
+
+  async copyExport(): Promise<void> {
+    try {
+      await navigator.clipboard.writeText(this.ioText());
+      this.ioNotice.set('已複製到剪貼簿');
+    } catch {
+      // 非 https（例如區網 P2P）時瀏覽器不給用剪貼簿，改成選取文字讓玩家自己複製
+      const area = this.ioArea()?.nativeElement;
+      area?.focus();
+      area?.select();
+      this.ioNotice.set('無法自動複製，文字已選取，請按 Ctrl+C');
+    }
+  }
+
+  downloadExport(): void {
+    const blob = new Blob([this.ioText()], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `qimai-${this.character()}-deck.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  async onImportFile(event: Event): Promise<void> {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+    input.value = ''; // 讓同一個檔案可以再選一次
+    if (!file) return;
+    if (file.size > DECK_TEXT_MAX_LENGTH * 4) {
+      this.ioErrors.set(['檔案太大，這看起來不是牌組']);
+      return;
+    }
+    this.ioText.set(await file.text());
+    this.applyImport();
+  }
+
+  /** 讀進組牌器，還沒存檔；玩家確認後一樣按「完成構築」 */
+  applyImport(): void {
+    const result = parseDeck(this.ioText(), this.character());
+    if (!result.ok) {
+      this.ioErrors.set(result.errors);
+      return;
+    }
+    this.deckCounts.set(result.deck);
+    this.ioMode.set(null);
   }
 
   // ─────────────────────────────────────────────

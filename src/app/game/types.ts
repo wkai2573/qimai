@@ -177,7 +177,7 @@ export type Effect =
   | { type: 'recoverHandCount' }
   /** 【挑釁/威嚇】對手選擇 1 張手牌置於怒氣區底 */
   | { type: 'forceOpponentHandToAnger'; conditionHandAtLeast?: number }
-  /** 【拋下狠話】對手捨棄 1 張招式卡（無則展示手牌），我方抽 1 張 */
+  /** 【拋下狠話】對手自選捨棄 1 張招式卡（無則展示手牌） */
   | { type: 'opponentDiscardTechnique' }
   /** 本回合下一張特定卡免費用 */
   | { type: 'freeCardNext'; targetDefId: string }

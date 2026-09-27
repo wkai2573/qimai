@@ -1,8 +1,10 @@
 import { TestBed } from '@angular/core/testing';
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { GameStore, SPEED_OPTIONS, speedMultiplier } from './game-store';
 import { RAGE_MAIN_DECK } from './game/cards';
+import { makeInstance } from './game/internal';
+import type { GameState } from './game/types';
 import type { P2PMessage } from './p2p/p2p-types';
 
 describe('對局節奏設定', () => {
@@ -132,5 +134,51 @@ describe('P2P 房主開局時採用客人的自訂牌組', () => {
     store.startP2PGame('mage', store.npcChar(), 123);
 
     expect(guestDeckCounts(store)).toEqual({ ...RAGE_MAIN_DECK });
+  });
+});
+
+// ─────────────────────────────────────────────
+// 單機：電腦回合中途要玩家做選擇
+// ─────────────────────────────────────────────
+
+describe('電腦回合中要玩家選擇時會等玩家', () => {
+  beforeEach(() => {
+    TestBed.configureTestingModule({});
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('電腦打出拋下狠話後停下來，玩家挑完招式才繼續把回合跑完', () => {
+    const store = TestBed.inject(GameStore);
+    const setup = store.pendingChoice()!;
+    for (const c of setup.candidates.slice(0, 3)) store.chooseCard(c.iid);
+
+    // 清掉開局可能已經排好的電腦步驟，直接擺出要測的場面
+    vi.clearAllTimers();
+    store.npcThinking.set(false);
+    const s = store.state() as GameState;
+    s.activeSeat = 'npc';
+    s.phase = 'main';
+    s.sides.npc.eventsUsedThisTurn = 0;
+    s.sides.npc.hand = [makeInstance(s, 'rg_paohua')];
+    s.sides.player.hand = [makeInstance(s, 'cm_tech_zhengquan'), makeInstance(s, 'rg_xueqi')];
+    (store as unknown as { afterChange(): void }).afterChange();
+
+    vi.advanceTimersByTime(10_000);
+    const waiting = store.state();
+    expect(waiting.activeSeat).toBe('npc');
+    expect(waiting.phase).toBe('main');
+    expect(waiting.pending?.seat).toBe('player');
+    expect(store.npcThinking()).toBe(false);
+
+    store.chooseCard(waiting.pending!.candidates[0].iid);
+    expect(store.player().hand.map((c) => c.defId)).toEqual(['rg_xueqi']);
+
+    vi.advanceTimersByTime(10_000);
+    expect(store.state().activeSeat).toBe('player');
+    expect(store.npcThinking()).toBe(false);
   });
 });

@@ -149,8 +149,8 @@ export function mainPhase(state: GameState, seat: Seat): number {
   let safety = 40; // 防止任何意外造成無限迴圈
 
   while (safety-- > 0) {
-    // 自己有選擇要做時先停下來（跟真人一樣，選完才能繼續）
-    if (state.pending?.seat === seat || state.pendingRebuild?.seat === seat) break;
+    // 有選擇要做時先停下來，選完才能繼續（例如拋下狠話要等對手挑完招式）
+    if (state.pending || state.pendingRebuild) break;
 
     const hand = [...state.sides[seat].hand];
 
@@ -245,7 +245,7 @@ export function runTurnDecisions(state: GameState, seat: Seat): void {
     mainPhase(state, seat);
   }
 
-  if (state.phase === 'main' && !state.winner) {
+  if (state.phase === 'main' && !state.winner && !state.pending && !state.pendingRebuild) {
     enterCombat(state);
   }
 

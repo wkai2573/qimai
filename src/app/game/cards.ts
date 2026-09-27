@@ -261,7 +261,7 @@ const RAGE_CARDS: CardDef[] = [
       { type: 'mill', n: 2 },
       { type: 'immuneTrickSecret' },
     ],
-    '【持續時間4】自傷 2 點。對手下回合中我方不受特技、密技的傷害與效果影響。',
+    '【持續時間4】自傷 2 點。對手回合中我方不受特技、密技的傷害與效果影響。',
     { duration: 4 },
   ),
   event(

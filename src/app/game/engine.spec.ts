@@ -6,6 +6,7 @@
 
 import { describe, expect, it } from 'vitest';
 
+import { runTurnDecisions } from './ai';
 import {
   card,
   COMMON_QUEST_DECK,
@@ -1521,5 +1522,70 @@ describe('秘法：持續時間與快速冷卻', () => {
     addEventCounters(g, 1, '回合結束');
     expect(g.eventZone).toBeNull();
     expect(g.sides.player.discard.some((c) => c.defId === 'mg_lichang')).toBe(true);
+  });
+});
+
+describe('拋下狠話：對手自選要丟的招式', () => {
+  it('對手是真人時，由對手從手上的招式裡挑 1 張捨棄', () => {
+    const g = createGame(1, { manualLifeSetup: false, mode: 'p2p' });
+    mainPhaseFor(g, 'player');
+    setHand(g, 'player', ['rg_paohua']);
+    setHand(g, 'npc', ['cm_tech_zhengquan', 'rg_tech_bajuan', 'rg_xueqi']);
+    const [weak, strong] = g.sides.npc.hand;
+
+    playFromHand(g, 'player', 'rg_paohua');
+
+    expect(g.pending?.kind).toBe('discardFromHand');
+    expect(g.pending?.seat).toBe('npc');
+    expect(g.pending?.candidates.map((c) => c.defId)).toEqual(['cm_tech_zhengquan', 'rg_tech_bajuan']);
+
+    // 對手自己決定丟強的那張
+    resolveChoice(g, strong.iid);
+    expect(g.pending).toBeNull();
+    expect(g.sides.npc.discard.some((c) => c.iid === strong.iid)).toBe(true);
+    expect(g.sides.npc.hand.some((c) => c.iid === weak.iid)).toBe(true);
+  });
+
+  it('對手是電腦時，丟價值最低的招式', () => {
+    const g = createGame(1, { manualLifeSetup: false });
+    mainPhaseFor(g, 'player');
+    setHand(g, 'player', ['rg_paohua']);
+    setHand(g, 'npc', ['rg_tech_bajuan', 'cm_tech_zhengquan', 'rg_xueqi']);
+
+    playFromHand(g, 'player', 'rg_paohua');
+
+    expect(g.pending).toBeNull();
+    expect(g.sides.npc.hand.map((c) => c.defId)).toEqual(['rg_tech_bajuan', 'rg_xueqi']);
+    expect(g.sides.npc.discard.at(-1)?.defId).toBe('cm_tech_zhengquan');
+  });
+
+  it('對手沒有招式時展示手牌，什麼都不丟', () => {
+    const g = createGame(1, { manualLifeSetup: false, mode: 'p2p' });
+    mainPhaseFor(g, 'player');
+    setHand(g, 'player', ['rg_paohua']);
+    setHand(g, 'npc', ['rg_xueqi']);
+
+    playFromHand(g, 'player', 'rg_paohua');
+
+    expect(g.pending).toBeNull();
+    expect(g.sides.npc.hand.length).toBe(1);
+    expect(g.log.some((l) => l.text.includes('展示手牌') && l.text.includes('血氣逆行'))).toBe(true);
+  });
+
+  it('電腦打出拋下狠話後，等玩家選完才繼續（不會直接進戰鬥）', () => {
+    const g = createGame(1, { manualLifeSetup: false });
+    mainPhaseFor(g, 'npc');
+    setHand(g, 'npc', ['rg_paohua']);
+    setHand(g, 'player', ['cm_tech_zhengquan', 'rg_xueqi']);
+
+    runTurnDecisions(g, 'npc');
+    expect(g.phase).toBe('main');
+    expect(g.pending?.seat).toBe('player');
+
+    resolveChoice(g, g.pending!.candidates[0].iid);
+    expect(g.sides.player.hand.map((c) => c.defId)).toEqual(['rg_xueqi']);
+
+    runTurnDecisions(g, 'npc');
+    expect(g.phase).toBe('combat');
   });
 });

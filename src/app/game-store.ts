@@ -742,7 +742,8 @@ export class GameStore {
   private afterChange(): void {
     const s = this._state();
     if (s.winner) return;
-    if (this.gameMode() === 'solo' && s.activeSeat === 'npc') {
+    // NPC 還在跑（例如玩家在它回合中途做完選擇）就不要再開一條，否則同一步會做兩次
+    if (this.gameMode() === 'solo' && s.activeSeat === 'npc' && !this.npcThinking()) {
       this.runNpcSequence();
     }
   }
@@ -771,6 +772,12 @@ export class GameStore {
 
       if (s.phase === 'main') {
         npcMainPhase(s);
+        // 玩家要先做選擇（例如拋下狠話挑要丟的招式）：先停下，選完由 afterChange 接著跑
+        if (!s.winner && (s.pending || s.pendingRebuild)) {
+          this.publish(s);
+          this.npcThinking.set(false);
+          return;
+        }
         if (!s.winner) enterCombat(s);
         this.publish(s);
         setTimeout(step, this.scaled(BASE_STEP_DELAY));

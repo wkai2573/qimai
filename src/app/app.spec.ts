@@ -302,6 +302,8 @@ describe('App', () => {
     expect(app.isDeckBuilderOpen()).toBe(true);
 
     fixture.detectChanges();
+    await fixture.whenStable(); // 組牌器是 @defer 載入
+    fixture.detectChanges();
     const el = fixture.nativeElement as HTMLElement;
     expect(el.querySelector('app-deck-builder')).toBeTruthy();
 
