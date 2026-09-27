@@ -41,7 +41,7 @@ import {
   toDiscard,
   withRng,
 } from './internal';
-import { evaluateQuest } from './quests';
+import { evaluateQuest, revealNextQuest } from './quests';
 import type { CharacterId, GameState, PendingChoice, Seat, SideState } from './types';
 import { EQUIP_LABEL, EQUIP_LIMITS, OTHER_SEAT, RULES } from './types';
 import type { PlayResult } from './combat';
@@ -91,6 +91,10 @@ export interface CreateGameOptions {
    * 雙方玩家是否都要自己挑生命卡（連線對戰用）。
    */
   manualLifeSetupBoth?: boolean;
+  /**
+   * 對戰模式（單機或 P2P 連線）
+   */
+  mode?: 'solo' | 'p2p';
 }
 
 /**
@@ -107,6 +111,7 @@ export function createGame(seed: number, opts: CreateGameOptions = {}): GameStat
   const state: GameState = {
     seed,
     rngState: seed >>> 0 || 0x9e3779b9,
+    mode: opts.mode ?? (opts.manualLifeSetupBoth ? 'p2p' : 'solo'),
     turn: 0,
     activeSeat: 'player',
     phase: 'setup',
@@ -198,24 +203,16 @@ function autoSetupLife(state: GameState, seat: Seat): void {
 }
 
 /**
- * 開局收尾：翻開雙方起始任務，然後開始第一個回合。
+ * 開局收尾：開始第一個回合（先攻玩家的回合）。
+ * 任務卡將在各玩家自身的回合開始時翻開，避免先攻方在第 1 回合直接阻止後攻方任務。
  * 由 createGame（自動模式）或 resolveChoice（玩家選完生命卡）呼叫。
  */
 function finishSetup(state: GameState): void {
-  for (const seat of ['player', 'npc'] as Seat[]) {
-    const side = state.sides[seat];
-    const q = side.questDeck.shift();
-    if (q) {
-      side.currentQuest = q;
-      log(state, seat, `${seatLabel(seat)}的起始任務：${card(q.defId).name}。`, 'quest');
-    }
-  }
-
   beginTurn(state, state.activeSeat);
 }
 
 // ─────────────────────────────────────────────
-// 玩家選擇（檢索、開局生命區）
+// 玩家選擇（檢索、開局生命區、迫令怒底）
 // ─────────────────────────────────────────────
 
 /**
@@ -237,7 +234,21 @@ export function resolveChoice(state: GameState, iid: number): void {
   if (pending.selected.length < pending.pick) return;
 
   if (pending.kind === 'search') finishSearchChoice(state, pending);
+  else if (pending.kind === 'handToAnger') finishHandToAngerChoice(state, pending);
   else finishLifeSetupChoice(state, pending);
+}
+
+/** 迫令丟手牌到怒底結算：由對手自選的手牌移入怒氣區底 */
+function finishHandToAngerChoice(state: GameState, pending: PendingChoice): void {
+  const side = state.sides[pending.seat];
+  const targetIid = pending.selected[0];
+  const idx = side.hand.findIndex((c) => c.iid === targetIid);
+  if (idx >= 0) {
+    const c = side.hand.splice(idx, 1)[0];
+    side.anger.unshift(c);
+    log(state, pending.seat, `【迫令怒底】${seatLabel(pending.seat)}將手牌「${nameOf(c)}」置入怒氣區底。`, 'combat');
+  }
+  state.pending = null;
 }
 
 /** 檢索結算：選中的進手牌，其餘依設定進棄牌區或放回牌組頂 */
@@ -335,6 +346,11 @@ export function beginTurn(state: GameState, seat: Seat): void {
   tickCooldowns(state, seat);
 
   log(state, null, `── 第 ${state.turn} 回合：${seatLabel(seat)}的回合 ──`, 'system');
+
+  // 任務牌在自己的回合開始時翻開（若當前沒有任務且任務牌組有牌）
+  if (!activeSide.currentQuest && activeSide.questDeck.length > 0) {
+    revealNextQuest(state, seat);
+  }
 
   // 抽牌階段
   state.phase = 'draw';

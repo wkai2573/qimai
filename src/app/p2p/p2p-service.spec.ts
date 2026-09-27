@@ -80,8 +80,8 @@ describe('P2P 網路服務與通訊協定', () => {
     expect(state.sides.npc.life.length).toBe(3);
     expect(state.pending).toBeNull();
     expect(state.turn).toBe(1);
-    expect(state.sides.player.currentQuest).not.toBeNull();
-    expect(state.sides.npc.currentQuest).not.toBeNull();
+    expect(state.sides[state.activeSeat].currentQuest).not.toBeNull();
+    expect(state.sides[state.activeSeat === 'player' ? 'npc' : 'player'].currentQuest).toBeNull();
   });
 
   it('P2P 訊息物件可正確建立並傳輸', () => {

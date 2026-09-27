@@ -229,9 +229,9 @@ export function rebuild(
     return finishRebuild(state, seat, side.life[0].card.iid, remaining, resume);
   }
 
-  if (seat === 'player') {
+  if (seat === 'player' || state.mode === 'p2p') {
     state.pendingRebuild = { seat, remaining, resume };
-    log(state, seat, '【牌組耗盡・重構】請從你的生命區挑選 1 張卡加入手牌。', 'rebuild');
+    log(state, seat, `【牌組耗盡・重構】請從${seat === 'player' ? '你' : '對手'}的生命區挑選 1 張卡加入手牌。`, 'rebuild');
     return 'pending';
   }
 

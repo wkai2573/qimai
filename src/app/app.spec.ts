@@ -209,4 +209,39 @@ describe('App', () => {
     app.setLogFilter('all');
     expect(app.logFilter()).toBe('all');
   });
+
+  it('怒氣區、牌組與任務牌組皆為隱藏資訊，雙方皆不可查看內容', async () => {
+    const fixture = TestBed.createComponent(App);
+    const app = fixture.componentInstance;
+    await fixture.whenStable();
+
+    app.openPile('player', 'deck');
+    expect(app.pileHidden()).toBe(true);
+
+    app.openPile('player', 'anger');
+    expect(app.pileHidden()).toBe(true);
+
+    app.openPile('npc', 'anger');
+    expect(app.pileHidden()).toBe(true);
+
+    app.openPile('player', 'questDeck');
+    expect(app.pileHidden()).toBe(true);
+
+    app.openPile('player', 'discard');
+    expect(app.pileHidden()).toBe(false);
+  });
+
+  it('雙方資源堆疊中正確顯示任務牌組堆疊與張數', async () => {
+    const fixture = TestBed.createComponent(App);
+    await fixture.whenStable();
+
+    const el = fixture.nativeElement as HTMLElement;
+    const questStacks = el.querySelectorAll('.pile-stack--quest');
+    expect(questStacks.length).toBe(2);
+
+    for (const stack of Array.from(questStacks)) {
+      expect(stack.textContent).toContain('任務');
+      expect(stack.getAttribute('title')).toContain('不可查看');
+    }
+  });
 });

@@ -149,7 +149,7 @@ function completeQuest(state: GameState, seat: Seat): void {
   );
 
   // 完成全部任務只是等級封頂，不再是勝利條件——勝負只取決於生命區
-  revealNextQuest(state, seat);
+  // 新任務改由玩家自己的回合開始時翻開，避免被對手在非自身回合干擾
 }
 
 function failQuest(state: GameState, seat: Seat): void {
@@ -169,7 +169,7 @@ function failQuest(state: GameState, seat: Seat): void {
     'quest',
   );
 
-  revealNextQuest(state, seat);
+  // 新任務改由玩家自己的回合開始時翻開，避免在同一對手回合連續受阻
 }
 
 /** 翻開任務牌組最上面一張作為新的當前任務 */

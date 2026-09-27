@@ -214,16 +214,15 @@
           <span class="text-[9px] text-slate-500">牌組</span>
         </div>
 
-        <button
-          type="button"
-          class="pile-stack pile-stack--anger pile-stack--clickable"
+        <!-- 怒氣區：內容為隱藏資訊，不可查看 -->
+        <div
+          class="pile-stack pile-stack--anger"
           [class.pile-stack--empty]="opponentSide().anger.length === 0"
-          title="點擊查看怒氣區內容"
-          (click)="openPile(store.opponentSeat(), 'anger')"
+          [title]="'對手怒氣剩 ' + opponentSide().anger.length + ' 點（內容為隱藏資訊，不可查看）'"
         >
           <span class="text-sm font-bold tabular-nums text-rose-300">{{ opponentSide().anger.length }}</span>
           <span class="text-[9px] text-slate-500">怒氣</span>
-        </button>
+        </div>
 
         <button
           type="button"
@@ -257,6 +256,16 @@
           <span class="text-sm font-bold tabular-nums text-amber-300">Lv{{ opponentSide().level }}</span>
           <span class="text-[9px] text-slate-500">達成</span>
         </button>
+
+        <!-- 任務牌組：內容為隱藏資訊，不可查看 -->
+        <div
+          class="pile-stack pile-stack--quest"
+          [class.pile-stack--empty]="opponentSide().questDeck.length === 0"
+          [title]="'任務牌組剩 ' + opponentSide().questDeck.length + ' 張（內容為隱藏資訊，不可查看）'"
+        >
+          <span class="text-sm font-bold tabular-nums text-amber-400">{{ opponentSide().questDeck.length }}</span>
+          <span class="text-[9px] text-slate-500">任務</span>
+        </div>
       </div>
 
       <div class="duel-line shrink-0"></div>
@@ -364,16 +373,15 @@
           <span class="text-[9px] text-slate-500">牌組</span>
         </div>
 
-        <button
-          type="button"
-          class="pile-stack pile-stack--anger pile-stack--clickable"
+        <!-- 怒氣區：內容為隱藏資訊，不可查看 -->
+        <div
+          class="pile-stack pile-stack--anger"
           [class.pile-stack--empty]="mySide().anger.length === 0"
-          title="點擊查看怒氣區內容"
-          (click)="openPile(store.mySeat(), 'anger')"
+          [title]="'我方怒氣剩 ' + mySide().anger.length + ' 點（內容為隱藏資訊，不可查看）'"
         >
           <span class="text-sm font-bold tabular-nums text-rose-300">{{ mySide().anger.length }}</span>
           <span class="text-[9px] text-slate-500">怒氣</span>
-        </button>
+        </div>
 
         <button
           type="button"
@@ -407,6 +415,16 @@
           <span class="text-sm font-bold tabular-nums text-amber-300">Lv{{ mySide().level }}</span>
           <span class="text-[9px] text-slate-500">達成</span>
         </button>
+
+        <!-- 任務牌組：內容為隱藏資訊，不可查看 -->
+        <div
+          class="pile-stack pile-stack--quest"
+          [class.pile-stack--empty]="mySide().questDeck.length === 0"
+          [title]="'任務牌組剩 ' + mySide().questDeck.length + ' 張（內容為隱藏資訊，不可查看）'"
+        >
+          <span class="text-sm font-bold tabular-nums text-amber-400">{{ mySide().questDeck.length }}</span>
+          <span class="text-[9px] text-slate-500">任務</span>
+        </div>
       </div>
 
       <!-- 我方場面 -->

@@ -394,7 +394,7 @@ export class App {
 
   /** 戰鬥區當前所有卡牌的名稱、類別與效果說明 */
   readonly combatEffects = computed(() => {
-    const cb = this.combat();
+    const cb = this.store.combat();
     if (!cb) return [];
 
     const items: { name: string; tag?: string; text: string }[] = [];
@@ -668,8 +668,11 @@ export class App {
     return this.mySide().buffs.filter((b) => !eqNames.has(b.source));
   });
 
-  /** 牌組內容是隱藏資訊，不提供檢視 */
-  readonly pileHidden = computed(() => this.pileView()?.kind === 'deck');
+  /** 牌組、怒氣區與任務牌組內容是隱藏資訊，不提供檢視 */
+  readonly pileHidden = computed(() => {
+    const k = this.pileView()?.kind;
+    return k === 'deck' || k === 'anger' || k === 'questDeck';
+  });
 
   openPile(seat: Seat, kind: PileKind): void {
     this.store.openPile(seat, kind);

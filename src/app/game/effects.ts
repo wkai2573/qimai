@@ -263,10 +263,23 @@ export function applyEffect(state: GameState, seat: Seat, effect: Effect, source
         break;
       }
       if (opp.hand.length > 0) {
-        const idx = withRng(state, (rng) => rng.int(opp.hand.length));
-        const c = opp.hand.splice(idx, 1)[0];
-        opp.anger.unshift(c);
-        log(state, oppSeat, `【迫令怒底】${seatLabel(oppSeat)}的手牌「${nameOf(c)}」被移入怒氣區底。`, 'combat');
+        const isHumanOpponent = oppSeat === 'player' || state.mode === 'p2p';
+        if (isHumanOpponent) {
+          state.pending = {
+            kind: 'handToAnger',
+            seat: oppSeat,
+            prompt: `【${sourceName}】請選擇 1 張手牌置於你的怒氣區底`,
+            candidates: [...opp.hand],
+            pick: 1,
+            selected: [],
+          };
+          log(state, oppSeat, `【${sourceName}】請從手牌選擇 1 張置於怒氣區底。`, 'system');
+        } else {
+          const idx = withRng(state, (rng) => rng.int(opp.hand.length));
+          const c = opp.hand.splice(idx, 1)[0];
+          opp.anger.unshift(c);
+          log(state, oppSeat, `【迫令怒底】${seatLabel(oppSeat)}的手牌「${nameOf(c)}」被移入怒氣區底。`, 'combat');
+        }
       }
       break;
     }

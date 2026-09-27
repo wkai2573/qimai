@@ -31,7 +31,7 @@ import {
 } from './engine';
 import { draw, makeInstance } from './internal';
 import type { GameState, Seat } from './types';
-import { RULES } from './types';
+import { OTHER_SEAT, RULES } from './types';
 
 // ─────────────────────────────────────────────
 // 測試輔助
@@ -115,14 +115,27 @@ describe('牌組構築規則', () => {
 // ─────────────────────────────────────────────
 
 describe('開局設置', () => {
-  it('雙方各有 3 張生命卡，且都翻開了起始任務', () => {
+  it('先攻方在第 1 回合開始時翻開起始任務，後攻方的起始任務留待其回合開始時翻開', () => {
     const g = createGame(2024, { manualLifeSetup: false });
+    const first = g.activeSeat;
+    const second = OTHER_SEAT[first];
 
     for (const seat of ['player', 'npc'] as Seat[]) {
       expect(g.sides[seat].life.length).toBe(RULES.lifeCount);
-      expect(g.sides[seat].currentQuest).not.toBeNull();
-      expect(card(g.sides[seat].currentQuest!.defId).quest?.starter).toBe(true);
     }
+    // 先攻方翻開了起始任務
+    expect(g.sides[first].currentQuest).not.toBeNull();
+    expect(card(g.sides[first].currentQuest!.defId).quest?.starter).toBe(true);
+
+    // 後攻方尚未翻開任務（第一回合先攻方不能阻止後攻方任務）
+    expect(g.sides[second].currentQuest).toBeNull();
+    expect(g.sides[second].questDeck.length).toBe(5);
+
+    // 輪到後攻方回合時，後攻方起始任務翻開
+    beginTurn(g, second);
+    expect(g.sides[second].currentQuest).not.toBeNull();
+    expect(card(g.sides[second].currentQuest!.defId).quest?.starter).toBe(true);
+    expect(g.sides[second].questDeck.length).toBe(4);
   });
 
   it('先攻方的生命卡是從起始抽牌中選出的，生命區的卡不在牌組裡', () => {
@@ -354,6 +367,23 @@ describe('重構與勝負', () => {
     expect(side.deck.length).toBeGreaterThan(0);
   });
 
+  it('P2P 連線模式下，客人（NPC 座位）重構時也會停下來讓客人玩家挑選生命卡', () => {
+    const g = createGame(1, { manualLifeSetup: false, mode: 'p2p' });
+    const side = g.sides.npc;
+    side.deck = [];
+    side.discard = [makeInstance(g, 'mg_tech_feidan'), makeInstance(g, 'mg_tech_bingzhi')];
+    const chosenIid = side.life[1].card.iid;
+
+    draw(g, 'npc', 1);
+    expect(g.pendingRebuild).not.toBeNull();
+    expect(g.pendingRebuild!.seat).toBe('npc');
+
+    resolveRebuild(g, chosenIid);
+    expect(g.pendingRebuild).toBeNull();
+    expect(side.life.length).toBe(2);
+    expect(side.hand.some((c) => c.iid === chosenIid)).toBe(true);
+  });
+
   it('生命區只剩一張時自動重構，不打擾玩家', () => {
     const g = createGame(1, { manualLifeSetup: false });
     const side = g.sides.player;
@@ -540,7 +570,7 @@ describe('任務系統', () => {
     expect(side.level).toBe(levelAfter);
   });
 
-  it('單一回合內同一座位至多結算一次任務，防止連鎖判定失敗', () => {
+  it('任務失敗後回到手牌，新任務留待玩家自身的回合開始時翻開', () => {
     const g = createGame(1, { manualLifeSetup: false });
     const side = g.sides.player;
     side.currentQuest = makeInstance(g, 'qst_master'); // block: takeDamageInTurn >= 6
@@ -551,7 +581,11 @@ describe('任務系統', () => {
 
     // 第一張大地之境失敗回手牌
     expect(side.hand.some((c) => c.defId === 'qst_master')).toBe(true);
-    // 新揭示的怒氣奔流不應在同一回合被連鎖判失敗
+    // 當前任務為 null，避免在同一對手回合被連鎖判定失敗
+    expect(side.currentQuest).toBeNull();
+
+    // 到了自己的回合開始時才翻開新任務
+    beginTurn(g, 'player');
     expect(side.currentQuest?.defId).toBe('qst_surge');
     expect(side.hand.some((c) => c.defId === 'qst_surge')).toBe(false);
   });
@@ -644,6 +678,29 @@ describe('主要階段', () => {
 
     expect(side.discard.length).toBe(discardBefore + 1);
     expect(side.discard[side.discard.length - 1].defId).toBe('rg_xueqi');
+  });
+
+  it('威嚇觸發迫令對手丟手牌到怒底時，若對手是人類玩家，會產生 pendingChoice 讓對手自選手牌', () => {
+    const g = createGame(1, { manualLifeSetup: false, mode: 'p2p' });
+    g.phase = 'main';
+    g.activeSeat = 'player';
+    const playerSide = g.sides.player;
+    const npcSide = g.sides.npc;
+
+    setHand(g, 'npc', ['rg_xueqi', 'rg_xueqi', 'rg_xueqi', 'rg_xueqi', 'rg_xueqi']);
+    const targetCard = npcSide.hand[0];
+
+    setHand(g, 'player', ['rg_weidai']);
+    expect(playCard(g, 'player', playerSide.hand[0].iid).ok).toBe(true);
+
+    expect(g.pending).not.toBeNull();
+    expect(g.pending!.kind).toBe('handToAnger');
+    expect(g.pending!.seat).toBe('npc');
+
+    resolveChoice(g, targetCard.iid);
+    expect(g.pending).toBeNull();
+    expect(npcSide.anger[0].iid).toBe(targetCard.iid);
+    expect(npcSide.hand.some((c) => c.iid === targetCard.iid)).toBe(false);
   });
 
   it('任務卡打出後會蓋到任務牌組最底下', () => {

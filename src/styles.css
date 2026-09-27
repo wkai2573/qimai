@@ -764,6 +764,9 @@ body {
 .pile-stack--level {
   border-color: rgba(250, 204, 21, 0.45);
 }
+.pile-stack--quest {
+  border-color: rgba(245, 158, 11, 0.45);
+}
 
 /* 空的時候不該看起來還像一疊牌 */
 .pile-stack--empty {

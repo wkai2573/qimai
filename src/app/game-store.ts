@@ -222,6 +222,7 @@ export class GameStore {
       playerCharacter: hostChar,
       npcCharacter: guestChar,
       manualLifeSetupBoth: true,
+      mode: 'p2p',
     });
     this.logCursor = next.log.length;
     this._state.set(next);
@@ -640,8 +641,18 @@ export class GameStore {
     const fresh = s.log.slice(this.logCursor);
     this.logCursor = s.log.length;
 
+    const combat = s.combat
+      ? {
+          ...s.combat,
+          plays: [...s.combat.plays],
+          chantPlays: [...s.combat.chantPlays],
+          defenseCards: [...s.combat.defenseCards],
+        }
+      : null;
+
     this._state.set({
       ...s,
+      combat,
       sides: {
         player: { ...s.sides.player },
         npc: { ...s.sides.npc },
@@ -653,7 +664,7 @@ export class GameStore {
     if (this.isHost()) {
       this.p2p.send({
         type: 'SYNC_STATE',
-        state: s,
+        state: this._state(),
         popups: this.popups(),
         combatSeq: this.combatSeq(),
       });

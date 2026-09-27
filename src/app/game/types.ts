@@ -437,7 +437,8 @@ export interface LogEntry {
 /** 需要玩家做選擇的種類 */
 export type PendingChoiceKind =
   | 'search' // 檢索：看牌組頂 N 張，選 M 張加入手牌
-  | 'lifeSetup'; // 開局：從手牌選 N 張覆蓋到生命區
+  | 'lifeSetup' // 開局：從手牌選 N 張覆蓋到生命區
+  | 'handToAnger'; // 迫令棄置手牌至怒底：由對手自選 1 張手牌移入怒氣區底
 
 /**
  * 等待玩家做選擇的待決事項。非 null 時遊戲暫停，UI 要先讓玩家選完才能繼續。
@@ -478,6 +479,8 @@ export interface GameState {
   seed: number;
   /** 隨機數產生器的當前內部狀態。存進 state 才能讓整局可序列化、可存檔、可重播 */
   rngState: number;
+  /** 遊戲模式：單機或 P2P 連線對戰 */
+  mode?: 'solo' | 'p2p';
   turn: number;
   activeSeat: Seat;
   phase: Phase;
