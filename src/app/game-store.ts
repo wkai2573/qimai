@@ -1,7 +1,7 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
 
 import { npcCombatPhase, npcMainPhase, npcShouldBurst } from './game/ai';
-import { card } from './game/cards';
+import { CHARACTER_MAIN_DECKS, card, validateMainDeck } from './game/cards';
 import { clearCombat, finishCombat, playTechnique, techniquePlayability } from './game/combat';
 import {
   chantTechnique,
@@ -25,6 +25,40 @@ export type PileKind = 'deck' | 'anger' | 'discard' | 'life' | 'level' | 'questD
 export interface PileView {
   seat: Seat;
   kind: PileKind;
+}
+
+const DECK_STORAGE_PREFIX = 'qimai.customDeck.';
+
+export function loadStoredDeck(charId: CharacterId): Record<string, number> {
+  try {
+    const raw = localStorage.getItem(`${DECK_STORAGE_PREFIX}${charId}`);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object') {
+        const val = validateMainDeck(parsed, charId);
+        if (val.ok) return parsed;
+      }
+    }
+  } catch {
+    /* 無痕模式或某些測試環境沒有 localStorage */
+  }
+  return { ...CHARACTER_MAIN_DECKS[charId] };
+}
+
+export function saveStoredDeck(charId: CharacterId, deck: Record<string, number>): void {
+  try {
+    localStorage.setItem(`${DECK_STORAGE_PREFIX}${charId}`, JSON.stringify(deck));
+  } catch {
+    /* ignore */
+  }
+}
+
+export function resetStoredDeck(charId: CharacterId): void {
+  try {
+    localStorage.removeItem(`${DECK_STORAGE_PREFIX}${charId}`);
+  } catch {
+    /* ignore */
+  }
 }
 
 // ─────────────────────────────────────────────
@@ -188,20 +222,32 @@ export class GameStore {
     this.afterChange();
   }
 
-  // ─────────────────────────────────────────────
-  // 對局控制
-  // ─────────────────────────────────────────────
+  // ── 牌組管理 ──
 
-  newGame(seed?: number, playerChar?: CharacterId, npcChar?: CharacterId): void {
+  getCustomDeck(charId: CharacterId): Record<string, number> {
+    return loadStoredDeck(charId);
+  }
+
+  saveCustomDeck(charId: CharacterId, deck: Record<string, number>): void {
+    saveStoredDeck(charId, deck);
+  }
+
+  resetCustomDeck(charId: CharacterId): void {
+    resetStoredDeck(charId);
+  }
+
+  newGame(seed?: number, playerChar?: CharacterId, npcChar?: CharacterId, customDeck?: Readonly<Record<string, number>>): void {
     this.gameMode.set('solo');
     this.mySeat.set('player');
     if (playerChar) this.playerChar.set(playerChar);
     if (npcChar) this.npcChar.set(npcChar);
     this.npcThinking.set(false);
     this.popups.set([]);
+    const pDeck = customDeck ?? this.getCustomDeck(this.playerChar());
     const next = createGame(seed ?? GameStore.randomSeed(), {
       playerCharacter: this.playerChar(),
       npcCharacter: this.npcChar(),
+      mainDeck: pDeck,
     });
     this.logCursor = next.log.length;
     this._state.set(next);
@@ -209,7 +255,7 @@ export class GameStore {
   }
 
   /** P2P 房主啟動連線對局 */
-  startP2PGame(hostChar: CharacterId, guestChar: CharacterId, seed?: number): void {
+  startP2PGame(hostChar: CharacterId, guestChar: CharacterId, seed?: number, hostDeck?: Readonly<Record<string, number>>): void {
     this.gameMode.set('p2p');
     this.mySeat.set('player');
     this.playerChar.set(hostChar);
@@ -218,11 +264,13 @@ export class GameStore {
     this.popups.set([]);
 
     const actualSeed = seed ?? GameStore.randomSeed();
+    const hDeck = hostDeck ?? this.getCustomDeck(hostChar);
     const next = createGame(actualSeed, {
       playerCharacter: hostChar,
       npcCharacter: guestChar,
       manualLifeSetupBoth: true,
       mode: 'p2p',
+      mainDeck: hDeck,
     });
     this.logCursor = next.log.length;
     this._state.set(next);

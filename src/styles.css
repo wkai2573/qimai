@@ -326,7 +326,7 @@ body {
 
 .card-tooltip {
   position: fixed;
-  z-index: 99;
+  z-index: 150;
   width: 266px;
   /* 不可互動，否則滑過去會觸發卡片的 mouseleave 造成閃爍 */
   pointer-events: none;

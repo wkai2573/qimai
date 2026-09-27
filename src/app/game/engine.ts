@@ -234,8 +234,25 @@ export function resolveChoice(state: GameState, iid: number): void {
   if (pending.selected.length < pending.pick) return;
 
   if (pending.kind === 'search') finishSearchChoice(state, pending);
+  else if (pending.kind === 'salvage') finishSalvageChoice(state, pending);
   else if (pending.kind === 'handToAnger') finishHandToAngerChoice(state, pending);
   else finishLifeSetupChoice(state, pending);
+}
+
+/** 回收結算：選中的卡從棄牌區加入手牌 */
+function finishSalvageChoice(state: GameState, pending: PendingChoice): void {
+  const side = state.sides[pending.seat];
+  const picked = pending.candidates.filter((c) => pending.selected.includes(c.iid));
+
+  for (const c of picked) {
+    const idx = side.discard.findIndex((x) => x.iid === c.iid);
+    if (idx >= 0) {
+      side.discard.splice(idx, 1);
+      side.hand.push(c);
+      log(state, pending.seat, `${seatLabel(pending.seat)}從棄牌區取回「${nameOf(c)}」。`, 'info');
+    }
+  }
+  state.pending = null;
 }
 
 /** 迫令丟手牌到怒底結算：由對手自選的手牌移入怒氣區底 */

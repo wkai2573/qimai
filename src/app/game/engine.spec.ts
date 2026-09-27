@@ -87,11 +87,27 @@ describe('牌組構築規則', () => {
     expect(issues.errors.some((e) => e.includes('超出同名上限'))).toBe(true);
   });
 
-  it('密奧義合計超過 6 張會被擋下', () => {
-    const bad = { ...RAGE_MAIN_DECK, rg_tech_bajuan: 4, rg_tech_nuhai: 4 };
+  it('密奧義合計超過 3 張會被擋下', () => {
+    const bad = { ...RAGE_MAIN_DECK, rg_tech_bajuan: 2, rg_tech_nuhai: 2 };
     const issues = validateMainDeck(bad);
     expect(issues.ok).toBe(false);
     expect(issues.errors.some((e) => e.includes('密奧義'))).toBe(true);
+  });
+
+  it('使用非本角色且非共用的卡片會被擋下', () => {
+    // 狂怒牌組加入秘法專屬卡
+    const bad = { ...RAGE_MAIN_DECK, mg_tech_huoqiu: 1 };
+    const issues = validateMainDeck(bad, 'rage');
+    expect(issues.ok).toBe(false);
+    expect(issues.errors.some((e) => e.includes('不屬於該角色專屬或共用卡池'))).toBe(true);
+  });
+
+  it('角色可以使用共用卡牌構築', () => {
+    // 狂怒牌組把 1 張怒策換成 1 張共用卡天地吐納
+    const deck = { ...RAGE_MAIN_DECK, rg_tech_nuce: 3, cm_tiandi: 1 };
+    const issues = validateMainDeck(deck, 'rage');
+    expect(issues.ok).toBe(true);
+    expect(issues.errors).toEqual([]);
   });
 
   it('主牌組張數不對會被擋下', () => {

@@ -888,6 +888,110 @@ const QIGONG_CARDS: CardDef[] = [
 ];
 
 // ─────────────────────────────────────────────
+// 【共用 / 中立】卡牌（任何流派皆可構築）
+// ─────────────────────────────────────────────
+
+export const COMMON_CARDS: readonly CardDef[] = [
+  // 行動
+  action(
+    'cm_tiandi',
+    '天地吐納',
+    1,
+    1,
+    [
+      { type: 'draw', n: 1 },
+      { type: 'recover', n: 1 },
+    ],
+    '調順呼吸，抽取 1 張卡並回復 1 張怒氣卡至牌組頂。',
+  ),
+  action(
+    'cm_xinjue',
+    '靜心凝氣',
+    0,
+    1,
+    [{ type: 'draw', n: 1 }],
+    '【0費】平復氣息，抽取 1 張卡。',
+  ),
+  action(
+    'cm_dan_huigu',
+    '回生金丹',
+    1,
+    1,
+    [{ type: 'recover', n: 2 }],
+    '吞服靈丹，回復 2 張怒氣卡至牌組頂。',
+  ),
+
+  // 事件
+  event(
+    'cm_jinchan',
+    '金蟬脫殼',
+    2,
+    2,
+    [{ type: 'modify', target: 'damageReduction', amount: 2, expiry: { at: 'thisTurnEnd' } }],
+    '幻形退避，本回合受到的戰鬥傷害減免 2 點。',
+  ),
+  event(
+    'cm_qiguan',
+    '氣貫長虹',
+    1,
+    1,
+    [{ type: 'modify', target: 'techniqueDamage', amount: 2, expiry: { at: 'thisTurnEnd' } }],
+    '真氣灌頂，本回合所有招式傷害 +2。',
+  ),
+
+  // 裝備
+  equipment(
+    'cm_eq_tieyi',
+    '護心鐵鏡',
+    'accessory',
+    {
+      level: 1,
+      guard: 2,
+      effects: [{ type: 'modify', target: 'guardValue', amount: 1, expiry: { at: 'permanent' } }],
+    },
+    '【飾品・等級1】防禦值 +1。',
+  ),
+  equipment(
+    'cm_eq_caoxie',
+    '疾風草履',
+    'boots',
+    {
+      level: 1,
+      guard: 1,
+      effects: [{ type: 'modify', target: 'drawCount', amount: 1, expiry: { at: 'permanent' } }],
+    },
+    '【鞋子・等級1】抽牌階段多抽 1 張卡。',
+  ),
+
+  // 招式
+  technique(
+    'cm_tech_zhengquan',
+    '正氣拳',
+    'trick',
+    { damage: 2, guard: 2 },
+    '江湖各派通用的基礎剛猛拳法。',
+  ),
+  technique(
+    'cm_tech_shentou',
+    '探海掌',
+    'secret',
+    {
+      damage: 3,
+      guard: 2,
+      comboBonus: { sequence: ['trick', 'secret'], damage: 1 },
+    },
+    '【連招：特技→密技】此擊傷害 +1。',
+  ),
+  technique(
+    'cm_tech_poyun',
+    '破雲式',
+    'ultimate',
+    { damage: 5, guard: 2, cost: 1 },
+    '【奧義】勢如破竹的一擊，造成 5 點傷害。',
+  ),
+];
+
+// ─────────────────────────────────────────────
 // 【共通】任務牌組（共 5 張，不可同名，雙面條件）
 // ─────────────────────────────────────────────
 
@@ -952,6 +1056,7 @@ export const CARD_DEFS: readonly CardDef[] = [
   ...RAGE_CARDS,
   ...MAGE_CARDS,
   ...QIGONG_CARDS,
+  ...COMMON_CARDS,
   ...QUEST_CARDS,
 ];
 
@@ -966,6 +1071,32 @@ export function card(id: string): CardDef {
 
 export function tryCard(id: string): CardDef | undefined {
   return DEF_MAP.get(id);
+}
+
+// ─────────────────────────────────────────────
+// 卡牌角色歸屬與卡池篩選
+// ─────────────────────────────────────────────
+
+export type CardAffiliation = CharacterId | 'common' | 'quest';
+
+export function cardAffiliation(id: string): CardAffiliation {
+  if (id.startsWith('rg_')) return 'rage';
+  if (id.startsWith('mg_')) return 'mage';
+  if (id.startsWith('qg_')) return 'qigong';
+  if (id.startsWith('cm_')) return 'common';
+  if (id.startsWith('qst_')) return 'quest';
+  return 'common';
+}
+
+export function isCardAllowedForCharacter(cardId: string, charId: CharacterId): boolean {
+  const aff = cardAffiliation(cardId);
+  return aff === charId || aff === 'common';
+}
+
+export function getCardPoolForCharacter(charId: CharacterId): CardDef[] {
+  return CARD_DEFS.filter(
+    (c) => c.kind !== 'quest' && isCardAllowedForCharacter(c.id, charId),
+  );
 }
 
 // ─────────────────────────────────────────────
@@ -995,10 +1126,10 @@ export const RAGE_MAIN_DECK: Readonly<Record<string, number>> = {
   rg_tech_bengxue: 3,
   rg_tech_kuangni: 4,
   rg_tech_liepo: 3,
-  rg_tech_nubaofa: 3,
+  rg_tech_nubaofa: 4,
   rg_tech_xiumie: 3,
   rg_tech_bajuan: 2,
-  rg_tech_nuhai: 2,
+  rg_tech_nuhai: 1,
 };
 
 export const MAGE_MAIN_DECK: Readonly<Record<string, number>> = {
@@ -1022,11 +1153,11 @@ export const MAGE_MAIN_DECK: Readonly<Record<string, number>> = {
   mg_tech_feidan: 4,
   mg_tech_bingzhi: 3,
   mg_tech_shandian: 4,
-  mg_tech_huoqiu: 3,
+  mg_tech_huoqiu: 4,
   mg_tech_yunshi: 3,
   mg_tech_jiguang: 3,
   mg_tech_xingyun: 2,
-  mg_tech_yanmie: 2,
+  mg_tech_yanmie: 1,
 };
 
 export const QIGONG_MAIN_DECK: Readonly<Record<string, number>> = {
@@ -1048,13 +1179,13 @@ export const QIGONG_MAIN_DECK: Readonly<Record<string, number>> = {
   qg_eq_fuchen: 1,
   // 招式 (24)
   qg_tech_tuishou: 4,
-  qg_tech_chuanyun: 3,
+  qg_tech_chuanyun: 4,
   qg_tech_bengshan: 4,
   qg_tech_qixuan: 3,
   qg_tech_hunyuan: 3,
   qg_tech_zhentian: 3,
   qg_tech_jiuxiao: 2,
-  qg_tech_jingang: 2,
+  qg_tech_jingang: 1,
 };
 
 export const CHARACTER_MAIN_DECKS: Record<CharacterId, Readonly<Record<string, number>>> = {
@@ -1094,7 +1225,10 @@ export interface DeckValidation {
   errors: string[];
 }
 
-export function validateMainDeck(counts: Readonly<Record<string, number>>): DeckValidation {
+export function validateMainDeck(
+  counts: Readonly<Record<string, number>>,
+  character?: CharacterId,
+): DeckValidation {
   const errors: string[] = [];
   let total = 0;
   let hiddenCount = 0;
@@ -1110,6 +1244,9 @@ export function validateMainDeck(counts: Readonly<Record<string, number>>): Deck
     }
     if (def.kind === 'quest') {
       errors.push(`任務卡「${def.name}」不可放入主牌組`);
+    }
+    if (character && !isCardAllowedForCharacter(id, character)) {
+      errors.push(`「${def.name}」不屬於該角色專屬或共用卡池`);
     }
     if (n > RULES.maxCopiesPerName) {
       errors.push(`「${def.name}」超出同名上限（目前 ${n} 張，最多 ${RULES.maxCopiesPerName} 張）`);

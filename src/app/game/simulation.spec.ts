@@ -11,7 +11,7 @@ import { describe, expect, it } from 'vitest';
 import { combatPhase, mainPhase, shouldBurst } from './ai';
 import { card } from './cards';
 import { clearCombat, finishCombat } from './combat';
-import { createGame, endTurnFully, enterCombat, resolveBurst, resolveRebuild } from './engine';
+import { createGame, endTurnFully, enterCombat, resolveBurst, resolveChoice, resolveRebuild } from './engine';
 import type { GameState } from './types';
 
 /** 讓當前回合的行動方自動打完他的整個回合 */
@@ -21,6 +21,15 @@ function autoTurn(state: GameState): void {
     const seat = state.pendingRebuild.seat;
     const life = state.sides[seat].life;
     if (life.length > 0) resolveRebuild(state, life[0].card.iid);
+    return;
+  }
+
+  // 選擇待決：模擬時自動挑候選卡
+  if (state.pending) {
+    for (const c of state.pending.candidates) {
+      resolveChoice(state, c.iid);
+      if (!state.pending) break;
+    }
     return;
   }
 

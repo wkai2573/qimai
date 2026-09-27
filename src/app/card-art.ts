@@ -520,6 +520,53 @@ export const ART_BY_ID: Record<string, string> = {
   qg_tech_jiuxiao: QG_TECH_JIUXIAO,
   qg_tech_jingang: QG_TECH_JINGANG,
 
+  // 共用
+  cm_tiandi: art(`
+    <path d="M16 38c8-10 24-10 32 0M20 28c6-8 18-8 24 0" />
+    <circle cx="32" cy="18" r="5" />
+    <path d="M32 24v18" stroke-dasharray="2 3" />
+  `),
+  cm_xinjue: art(`
+    <circle cx="32" cy="32" r="16" />
+    <circle cx="32" cy="32" r="6" />
+    <path d="M32 12v4M32 48v4M12 32h4M48 32h4" />
+  `),
+  cm_dan_huigu: art(`
+    <circle cx="32" cy="32" r="14" />
+    <path d="M24 24l16 16M24 40l16-16" opacity=".5" />
+    <circle cx="32" cy="32" r="5" ${F} />
+  `),
+  cm_jinchan: art(`
+    <ellipse cx="32" cy="34" rx="10" ry="14" />
+    <path d="M22 26c-6-6-10-2-12 4 4 2 8 0 12-4zM42 26c6-6 10-2 12 4-4 2-8 0-12-4z" />
+    <circle cx="32" cy="16" r="4" />
+  `),
+  cm_qiguan: art(`
+    <path d="M32 52V12M20 24l12-12 12 12" />
+    <path d="M14 42c8-4 28-4 36 0" opacity=".6" />
+  `),
+  cm_eq_tieyi: art(`
+    <circle cx="32" cy="32" r="18" />
+    <circle cx="32" cy="32" r="10" stroke-dasharray="4 3" />
+    <path d="M32 18v28M18 32h28" opacity=".4" />
+  `),
+  cm_eq_caoxie: art(`
+    <path d="M18 42c6 6 22 6 28 0-2-8-6-14-14-14s-12 6-14 14z" />
+    <path d="M24 34l8-12 8 12M22 40h20" />
+  `),
+  cm_tech_zhengquan: art(`
+    <rect x="20" y="22" width="24" height="20" rx="4" />
+    <path d="M26 22v-6a3 3 0 0 1 6 0v6M32 22v-4a3 3 0 0 1 6 0v4M20 32h24" />
+  `),
+  cm_tech_shentou: art(`
+    <path d="M20 44V26a4 4 0 0 1 8 0v18M28 22a4 4 0 0 1 8 0v22M36 26a4 4 0 0 1 8 0v18" />
+    <path d="M20 34h24" />
+  `),
+  cm_tech_poyun: art(`
+    <path d="M12 40c4-8 16-8 20 0 4-10 16-10 20 0" />
+    <path d="M32 14v36M24 22l8-8 8 8" />
+  `),
+
   // 任務
   qst_first: Q_FIRST,
   qst_combo: Q_COMBO,

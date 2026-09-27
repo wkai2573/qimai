@@ -72,7 +72,7 @@ export const RULES = {
   /** 裝備／行動／事件／招式：同名卡上限 */
   maxCopiesPerName: 4,
   /** 密奧義：張數合計上限 */
-  maxHiddenTechniques: 6,
+  maxHiddenTechniques: 3,
   /** 生命區張數 */
   lifeCount: 3,
   /** 先攻起始抽牌數 */
@@ -437,6 +437,7 @@ export interface LogEntry {
 /** 需要玩家做選擇的種類 */
 export type PendingChoiceKind =
   | 'search' // 檢索：看牌組頂 N 張，選 M 張加入手牌
+  | 'salvage' // 回收：從棄牌區選 N 張加入手牌
   | 'lifeSetup' // 開局：從手牌選 N 張覆蓋到生命區
   | 'handToAnger'; // 迫令棄置手牌至怒底：由對手自選 1 張手牌移入怒氣區底
 

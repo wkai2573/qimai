@@ -12,6 +12,7 @@ import { DomSanitizer, type SafeHtml } from '@angular/platform-browser';
 
 import { CardDetailComponent } from './card-detail';
 import { CardViewComponent } from './card-view';
+import { DeckBuilderComponent, type CardHoverEvent } from './deck-builder';
 import { cardArt } from './card-art';
 import { isDragGesture, isInsideDropZone } from './drag-utils';
 import { DEFAULT_CARD_WIDTH, computeHandSpacing } from './hand-layout';
@@ -65,7 +66,7 @@ interface DragState {
 @Component({
   selector: 'app-root',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CardViewComponent, CardDetailComponent],
+  imports: [CardViewComponent, CardDetailComponent, DeckBuilderComponent],
   templateUrl: './app.html',
   styleUrl: './app.css',
   host: {
@@ -134,6 +135,47 @@ export class App {
     this.showHeroSelect.set(false);
   }
 
+  // ── 牌組構築 ──
+  readonly isDeckBuilderOpen = signal(false);
+  readonly playerCustomDeck = computed(() => this.store.getCustomDeck(this.selectedPlayerChar()));
+
+  openDeckBuilder(char?: CharacterId): void {
+    if (char) {
+      this.selectedPlayerChar.set(char);
+    }
+    this.isDeckBuilderOpen.set(true);
+  }
+
+  closeDeckBuilder(): void {
+    this.isDeckBuilderOpen.set(false);
+  }
+
+  onDeckSaved(deck: Record<string, number>): void {
+    this.store.saveCustomDeck(this.selectedPlayerChar(), deck);
+  }
+
+  onDeckCardHover(event: CardHoverEvent | null): void {
+    if (!event) {
+      this.tooltipCard.set(null);
+      return;
+    }
+    const inst: CardInstance = {
+      iid: -1,
+      defId: event.defId,
+    };
+    const W = 260;
+    const H = 380;
+    const GAP = 12;
+    const EDGE = 8;
+    let x = event.x + GAP;
+    let y = event.y - 40;
+    if (x + W > window.innerWidth - EDGE) x = event.x - W - GAP;
+    if (x < EDGE) x = EDGE;
+    if (y + H > window.innerHeight - EDGE) y = window.innerHeight - H - EDGE;
+    if (y < EDGE) y = EDGE;
+    this.tooltipCard.set({ inst, x, y });
+  }
+
   startSelectedGame(): void {
     const p = this.selectedPlayerChar();
     let n = this.selectedNpcChar();
@@ -141,7 +183,8 @@ export class App {
       const candidates: CharacterId[] = ['rage', 'mage', 'qigong'];
       n = candidates[Math.floor(Math.random() * candidates.length)];
     }
-    this.store.newGame(undefined, p, n);
+    const deck = this.store.getCustomDeck(p);
+    this.store.newGame(undefined, p, n, deck);
     this.showHeroSelect.set(false);
   }
 
@@ -716,11 +759,27 @@ export class App {
     this.store.chooseCard(iid);
   }
 
+  getCooldownRemaining(seat: Seat, iid: number): number {
+    const cd = this.store.state().sides[seat].cooldownZone.find((item) => item.card.iid === iid);
+    if (!cd) return 0;
+    return Math.max(0, cd.maxCounter - cd.counter);
+  }
+
+  findCooldownInfo(iid: number): { remaining: number; max: number } | undefined {
+    for (const seat of ['player', 'npc'] as const) {
+      const cd = this.store.state().sides[seat].cooldownZone.find((item) => item.card.iid === iid);
+      if (cd) {
+        return { remaining: Math.max(0, cd.maxCounter - cd.counter), max: cd.maxCounter };
+      }
+    }
+    return undefined;
+  }
+
   // ─────────────────────────────────────────────
   // 卡片詳細浮層（滑鼠移入時顯示）
   // ─────────────────────────────────────────────
 
-  readonly tooltipCard = signal<{ inst: CardInstance; x: number; y: number } | null>(null);
+  readonly tooltipCard = signal<{ inst: CardInstance; x: number; y: number; cooldownRemaining?: number } | null>(null);
 
   /**
    * 自製小卡（生命區、裝備區、任務卡）的 hover。
@@ -747,6 +806,8 @@ export class App {
       return;
     }
 
+    const cdInfo = this.findCooldownInfo(info.iid);
+
     const W = 260;
     const H = 380;
     const GAP = 12;
@@ -760,7 +821,7 @@ export class App {
     if (y + H > window.innerHeight - EDGE) y = window.innerHeight - H - EDGE;
     if (y < EDGE) y = EDGE;
 
-    this.tooltipCard.set({ inst, x, y });
+    this.tooltipCard.set({ inst, x, y, cooldownRemaining: cdInfo?.remaining });
   }
 
   logToneClass(tone: string): string {
