@@ -438,7 +438,8 @@ export interface LogEntry {
 export type PendingChoiceKind =
   | 'search' // 檢索：看牌組頂 N 張，選 M 張加入手牌
   | 'lifeSetup' // 開局：從手牌選 N 張覆蓋到生命區
-  | 'handToAnger'; // 迫令棄置手牌至怒底：由對手自選 1 張手牌移入怒氣區底
+  | 'handToAnger' // 迫令棄置手牌至怒底：由對手自選 1 張手牌移入怒氣區底
+  | 'salvage'; // 回收：從棄牌區選 N 張加入手牌
 
 /**
  * 等待玩家做選擇的待決事項。非 null 時遊戲暫停，UI 要先讓玩家選完才能繼續。

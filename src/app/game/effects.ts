@@ -134,13 +134,32 @@ export function applyEffect(state: GameState, seat: Seat, effect: Effect, source
 
     case 'salvage': {
       const pool = filterCards(side.discard, effect.filter);
-      const picked = pool.slice(0, effect.n);
-      for (const c of picked) {
-        const idx = side.discard.findIndex((x) => x.iid === c.iid);
-        if (idx >= 0) {
-          side.discard.splice(idx, 1);
-          side.hand.push(c);
-          log(state, seat, `${seatLabel(seat)}因「${sourceName}」從棄牌區取回「${nameOf(c)}」。`, 'info');
+      if (pool.length === 0) {
+        log(state, seat, `${seatLabel(seat)}發動「${sourceName}」，但棄牌區沒有符合條件的卡牌。`, 'info');
+        break;
+      }
+
+      const pick = Math.min(effect.n, pool.length);
+      const isHuman = seat === 'player' || state.mode === 'p2p';
+      if (isHuman) {
+        state.pending = {
+          kind: 'salvage',
+          seat,
+          prompt: `${sourceName}：從棄牌區選擇 ${pick} 張加入手牌`,
+          candidates: pool,
+          pick,
+          selected: [],
+        };
+        log(state, seat, `${seatLabel(seat)}發動「${sourceName}」，請選擇要取回的卡。`, 'info');
+      } else {
+        const picked = pool.slice(0, pick);
+        for (const c of picked) {
+          const idx = side.discard.findIndex((x) => x.iid === c.iid);
+          if (idx >= 0) {
+            side.discard.splice(idx, 1);
+            side.hand.push(c);
+            log(state, seat, `${seatLabel(seat)}因「${sourceName}」從棄牌區取回「${nameOf(c)}」。`, 'info');
+          }
         }
       }
       break;

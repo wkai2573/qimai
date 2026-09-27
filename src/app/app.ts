@@ -716,11 +716,27 @@ export class App {
     this.store.chooseCard(iid);
   }
 
+  getCooldownRemaining(seat: Seat, iid: number): number {
+    const cd = this.store.state().sides[seat].cooldownZone.find((item) => item.card.iid === iid);
+    if (!cd) return 0;
+    return Math.max(0, cd.maxCounter - cd.counter);
+  }
+
+  findCooldownInfo(iid: number): { remaining: number; max: number } | undefined {
+    for (const seat of ['player', 'npc'] as const) {
+      const cd = this.store.state().sides[seat].cooldownZone.find((item) => item.card.iid === iid);
+      if (cd) {
+        return { remaining: Math.max(0, cd.maxCounter - cd.counter), max: cd.maxCounter };
+      }
+    }
+    return undefined;
+  }
+
   // ─────────────────────────────────────────────
   // 卡片詳細浮層（滑鼠移入時顯示）
   // ─────────────────────────────────────────────
 
-  readonly tooltipCard = signal<{ inst: CardInstance; x: number; y: number } | null>(null);
+  readonly tooltipCard = signal<{ inst: CardInstance; x: number; y: number; cooldownRemaining?: number } | null>(null);
 
   /**
    * 自製小卡（生命區、裝備區、任務卡）的 hover。
@@ -747,6 +763,8 @@ export class App {
       return;
     }
 
+    const cdInfo = this.findCooldownInfo(info.iid);
+
     const W = 260;
     const H = 380;
     const GAP = 12;
@@ -760,7 +778,7 @@ export class App {
     if (y + H > window.innerHeight - EDGE) y = window.innerHeight - H - EDGE;
     if (y < EDGE) y = EDGE;
 
-    this.tooltipCard.set({ inst, x, y });
+    this.tooltipCard.set({ inst, x, y, cooldownRemaining: cdInfo?.remaining });
   }
 
   logToneClass(tone: string): string {

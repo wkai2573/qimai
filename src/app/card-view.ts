@@ -71,6 +71,8 @@ const SIZE_CLASS: Record<CardSize, string> = {
           <!-- 特性標記 -->
           @if (def().chant) {
             <span class="absolute bottom-0.5 left-0.5 rounded bg-sky-950/90 px-1 py-px text-[7px] font-bold text-sky-300 ring-1 ring-sky-500/50" title="可於主要階段詠唱">詠</span>
+          } @else if (cooldownRemaining() !== undefined) {
+            <span class="absolute bottom-0.5 left-0.5 rounded bg-emerald-950/90 px-1 py-px text-[7px] font-bold text-emerald-300 ring-1 ring-emerald-500/50" [title]="'冷卻中：剩餘 ' + cooldownRemaining() + ' 回合'">剩{{ cooldownRemaining() }}回</span>
           } @else if (def().cooldown) {
             <span class="absolute bottom-0.5 left-0.5 rounded bg-emerald-950/90 px-1 py-px text-[7px] font-bold text-emerald-300 ring-1 ring-emerald-500/50" title="冷卻卡">冷{{ def().cooldown }}</span>
           } @else if (def().toAngerBottom) {
@@ -100,6 +102,8 @@ export class CardViewComponent {
   /** 滑鼠移入時回報位置，由外層顯示詳細資訊浮層 */
   readonly tooltip = input(false);
   readonly size = input<CardSize>('md');
+  /** 冷卻中剩餘回合數（若提供則在左下角標籤顯示「剩N回」） */
+  readonly cooldownRemaining = input<number | undefined>(undefined);
 
   readonly pick = output<number>();
   /** hover 狀態變化；null 表示移出 */
