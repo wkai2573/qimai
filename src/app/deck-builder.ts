@@ -73,11 +73,11 @@ export interface CardHoverEvent {
           <!-- 密奧義張數 -->
           <div
             class="flex items-baseline gap-1 rounded-lg border px-3 py-1.5 transition-colors"
-            [class]="hiddenCount() <= 3 ? 'border-purple-500/50 bg-purple-950/30 text-purple-300' : 'border-rose-500 bg-rose-950/50 text-rose-300'"
+            [class]="hiddenCount() <= rules.maxHiddenTechniques ? 'border-purple-500/50 bg-purple-950/30 text-purple-300' : 'border-rose-500 bg-rose-950/50 text-rose-300'"
           >
             <span class="text-xs font-bold">密奧義：</span>
             <span class="text-base font-black tabular-nums">{{ hiddenCount() }}</span>
-            <span class="text-xs font-semibold text-slate-400">/ 3</span>
+            <span class="text-xs font-semibold text-slate-400">/ {{ rules.maxHiddenTechniques }}</span>
           </div>
 
           <!-- 功能按鈕 -->
@@ -201,7 +201,7 @@ export interface CardHoverEvent {
                     <button
                       type="button"
                       class="flex h-5 w-5 items-center justify-center rounded bg-slate-800 text-xs font-black text-slate-300 transition hover:bg-emerald-900/60 hover:text-emerald-200 disabled:opacity-30"
-                      [disabled]="entry.count >= 4 || totalCards() >= 50 || (entry.def.tier === 'hidden' && hiddenCount() >= 3)"
+                      [disabled]="entry.count >= 4 || totalCards() >= 50 || (entry.def.tier === 'hidden' && hiddenCount() >= rules.maxHiddenTechniques)"
                       title="增加 1 張"
                       (click)="addCard(entry.def.id)"
                     >
@@ -269,7 +269,7 @@ export interface CardHoverEvent {
               <div class="grid grid-cols-2 gap-2.5 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
                 @for (card of filteredPool(); track card.id) {
                   @let countInDeck = deckCounts()[card.id] ?? 0;
-                  @let isFull = countInDeck >= 4 || (card.tier === 'hidden' && hiddenCount() >= 3 && countInDeck === 0);
+                  @let isFull = countInDeck >= 4 || (card.tier === 'hidden' && hiddenCount() >= rules.maxHiddenTechniques && countInDeck === 0);
                   @let isCommon = cardAffiliation(card.id) === 'common';
 
                   <div
@@ -365,6 +365,7 @@ export class DeckBuilderComponent implements OnInit {
   private readonly sanitizer = inject(DomSanitizer);
 
   readonly cardAffiliation = cardAffiliation;
+  readonly rules = RULES;
 
   readonly character = input.required<CharacterId>();
   readonly initialDeck = input<Readonly<Record<string, number>> | null>(null);

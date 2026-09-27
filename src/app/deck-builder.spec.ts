@@ -23,9 +23,9 @@ describe('DeckBuilderComponent', () => {
     expect(component).toBeTruthy();
   });
 
-  it('初始狀態牌組總數剛好 50 張，密奧義總數最多 3 張', () => {
+  it('初始狀態牌組總數剛好 50 張，密奧義總數最多 6 張', () => {
     expect(component.totalCards()).toBe(50);
-    expect(component.hiddenCount()).toBeLessThanOrEqual(3);
+    expect(component.hiddenCount()).toBeLessThanOrEqual(6);
     expect(component.validation().ok).toBe(true);
   });
 
@@ -51,19 +51,23 @@ describe('DeckBuilderComponent', () => {
     expect(component.deckCounts()['rg_tech_nuce']).toBe(4);
   });
 
-  it('密奧義卡片不可超過 3 張', () => {
-    // 先移除 1 張非密奧義牌以騰出牌組空間
-    component.removeCard('rg_tech_nuce');
-    expect(component.totalCards()).toBe(49);
+  it('密奧義卡片不可超過 6 張', () => {
+    // 先移除 4 張非密奧義牌以騰出牌組空間
+    for (let i = 0; i < 4; i++) component.removeCard('rg_tech_nuce');
+    expect(component.totalCards()).toBe(46);
 
-    // 目前預設牌組已有 3 張密奧義（bajuan 2 + nuhai 1）
+    // 目前預設牌組已有 3 張密奧義（bajuan 2 + nuhai 1），再補 3 張到上限 6 張
     expect(component.hiddenCount()).toBe(3);
+    component.addCard('rg_tech_bajuan');
+    component.addCard('rg_tech_bajuan');
+    component.addCard('rg_tech_nuhai');
+    expect(component.hiddenCount()).toBe(6);
 
-    // 嘗試加入另一張密奧義
+    // 嘗試加入第 7 張密奧義
     component.addCard('rg_tech_nuhai');
     // 密奧義不能增加
-    expect(component.hiddenCount()).toBe(3);
-    expect(component.deckCounts()['rg_tech_nuhai']).toBe(1);
+    expect(component.hiddenCount()).toBe(6);
+    expect(component.deckCounts()['rg_tech_nuhai']).toBe(2);
   });
 
   it('牌組總數不可超過 50 張', () => {

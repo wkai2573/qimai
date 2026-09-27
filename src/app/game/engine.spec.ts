@@ -87,8 +87,8 @@ describe('牌組構築規則', () => {
     expect(issues.errors.some((e) => e.includes('超出同名上限'))).toBe(true);
   });
 
-  it('密奧義合計超過 3 張會被擋下', () => {
-    const bad = { ...RAGE_MAIN_DECK, rg_tech_bajuan: 2, rg_tech_nuhai: 2 };
+  it('密奧義合計超過 6 張會被擋下', () => {
+    const bad = { ...RAGE_MAIN_DECK, rg_tech_bajuan: 4, rg_tech_nuhai: 3 };
     const issues = validateMainDeck(bad);
     expect(issues.ok).toBe(false);
     expect(issues.errors.some((e) => e.includes('密奧義'))).toBe(true);

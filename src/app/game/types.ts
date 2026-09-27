@@ -72,7 +72,7 @@ export const RULES = {
   /** 裝備／行動／事件／招式：同名卡上限 */
   maxCopiesPerName: 4,
   /** 密奧義：張數合計上限 */
-  maxHiddenTechniques: 3,
+  maxHiddenTechniques: 6,
   /** 生命區張數 */
   lifeCount: 3,
   /** 先攻起始抽牌數 */
