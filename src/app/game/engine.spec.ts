@@ -1356,7 +1356,7 @@ describe('秘法：詠唱與指示物', () => {
     const side = g.sides.player;
     const hat = makeInstance(g, 'mg_eq_mimao');
     equipCard(g, 'player', hat);
-    g.eventZone = { card: makeInstance(g, 'mg_modao'), owner: 'player', counters: 0 };
+    g.eventZone = { card: makeInstance(g, 'mg_lichang'), owner: 'player', counters: 0 };
 
     addEventCounters(g, 3, '測試');
     expect(g.eventZone.counters).toBe(3);
@@ -1463,5 +1463,63 @@ describe('秘法：詠唱與指示物', () => {
     expect(g2.pending?.kind).toBe('salvage');
     resolveChoice(g2, g2.pending!.candidates.find((c) => c.defId === 'mg_tech_shandian')!.iid);
     expect(side2.hand.map((c) => c.defId)).toEqual(['mg_tech_shandian']);
+  });
+});
+
+describe('秘法：持續時間與快速冷卻', () => {
+  it('快速冷卻從棄牌區詠唱，佔用本回合詠唱次數', () => {
+    const g = createGame(1, { manualLifeSetup: false });
+    const side = g.sides.player;
+    side.discard = [makeInstance(g, 'mg_el_huoqiu')];
+    mainPhaseFor(g, 'player');
+    setHand(g, 'player', ['mg_kuaisu', 'mg_el_bingzhui']);
+
+    playFromHand(g, 'player', 'mg_kuaisu');
+    expect(g.pending?.kind).toBe('chantFromDiscard');
+    resolveChoice(g, g.pending!.candidates[0].iid);
+
+    expect(side.chantedCards.map((c) => c.defId)).toEqual(['mg_el_huoqiu']);
+    expect(side.chantsUsedThisTurn).toBe(1);
+    // 次數已經用掉，手牌的冰錐不能再詠唱
+    expect(chantTechnique(g, 'player', side.hand[0].iid).ok).toBe(false);
+  });
+
+  it('本回合已經詠唱過時，快速冷卻沒有效果', () => {
+    const g = createGame(1, { manualLifeSetup: false });
+    const side = g.sides.player;
+    side.discard = [makeInstance(g, 'mg_el_huoqiu')];
+    mainPhaseFor(g, 'player');
+    setHand(g, 'player', ['mg_el_bingzhui', 'mg_kuaisu']);
+
+    chantTechnique(g, 'player', side.hand[0].iid);
+    playFromHand(g, 'player', 'mg_kuaisu');
+
+    expect(g.pending).toBeNull();
+    expect(side.discard.some((c) => c.defId === 'mg_el_huoqiu')).toBe(true);
+  });
+
+  it('整理魔導書（持續時間 3）：放滿 3 個指示物到期時，取回 3 張招式', () => {
+    const g = createGame(1, { manualLifeSetup: false });
+    const side = g.sides.npc;
+    g.eventZone = { card: makeInstance(g, 'mg_modao'), owner: 'npc', counters: 0 };
+    side.discard = ['mg_el_huoqiu', 'mg_el_bingzhui', 'mg_el_dianqiu', 'mg_el_huoyu'].map((id) => makeInstance(g, id));
+    const handBefore = side.hand.length;
+
+    addEventCounters(g, 3, '測試');
+
+    expect(g.eventZone).toBeNull();
+    expect(side.hand.length).toBe(handBefore + 3);
+  });
+
+  it('秘法力場（持續時間 10）：詠唱放的指示物也會累積，到 10 個就捨棄', () => {
+    const g = createGame(1, { manualLifeSetup: false });
+    g.eventZone = { card: makeInstance(g, 'mg_lichang'), owner: 'player', counters: 7 };
+
+    addEventCounters(g, 2, '測試');
+    expect(g.eventZone?.counters).toBe(9);
+
+    addEventCounters(g, 1, '回合結束');
+    expect(g.eventZone).toBeNull();
+    expect(g.sides.player.discard.some((c) => c.defId === 'mg_lichang')).toBe(true);
   });
 });

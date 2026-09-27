@@ -221,7 +221,7 @@ export type Effect =
   | { type: 'salvageByCounters'; filter: CardFilter }
 
   // ── 詠唱 ──
-  /** 從棄牌區選 1 張有詠唱特性的卡詠唱打出（仍需支付詠唱費用，不佔每回合詠唱次數） */
+  /** 從棄牌區選 1 張有詠唱特性的卡詠唱打出（仍需支付詠唱費用，也佔用每回合詠唱次數） */
   | { type: 'chantFromDiscard' }
   /** 【完全詠唱】獲得本回合打出招式的全部詠唱效果，並額外詠唱此卡 */
   | { type: 'gainPlayedChants' }

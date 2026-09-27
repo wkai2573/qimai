@@ -240,6 +240,8 @@ describe('App', () => {
         player: { ...s.sides.player, equipment: [{ iid: 902, defId: 'rg_eq_toujin' }], tappedEquipment: [], equipCounters: {} },
       },
     }));
+    // 開場隨機局若是對手先攻，NPC 會進入思考狀態讓玩家不能操作；這裡明確設成輪到玩家
+    app.store.npcThinking.set(false);
     fixture.detectChanges();
     await fixture.whenStable();
 

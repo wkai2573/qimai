@@ -13,8 +13,9 @@ import { card } from './cards';
 import { playTechnique, techniquePlayability } from './combat';
 import { matchFilter } from './conditions';
 import { activateEquipment, chantTechnique, enterCombat, playCard, resolveBurst } from './engine';
+import { chantsLeft } from './internal';
 import type { CardFilter, CardInstance, Effect, GameState, Seat } from './types';
-import { TECHNIQUE_ORDER } from './types';
+import { RULES, TECHNIQUE_ORDER } from './types';
 
 // ─────────────────────────────────────────────
 // 爆發階段
@@ -60,6 +61,8 @@ function effectsWorthIt(state: GameState, seat: Seat, effects: readonly Effect[]
   for (const e of effects ?? []) {
     switch (e.type) {
       case 'chantFromDiscard':
+        // 從棄牌區詠唱一樣佔用詠唱次數
+        if (chantsLeft(state, seat, RULES.chantsPerTurn) <= 0) return false;
         if (!side.discard.some((c) => !!card(c.defId).chant)) return false;
         break;
       case 'addEventCounters':

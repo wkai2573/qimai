@@ -10,6 +10,7 @@ import { checkCondition, matchFilter } from './conditions';
 import {
   addBuff,
   chantCost,
+  chantsLeft,
   discardFromAnger,
   draw,
   isHumanSeat,
@@ -37,7 +38,7 @@ import type {
   GameState,
   Seat,
 } from './types';
-import { EQUIP_LABEL, EQUIP_LIMITS, OTHER_SEAT } from './types';
+import { EQUIP_LABEL, EQUIP_LIMITS, OTHER_SEAT, RULES } from './types';
 
 export { checkCondition, matchFilter };
 
@@ -317,7 +318,7 @@ function chantableInDiscard(state: GameState, seat: Seat): CardInstance[] {
   });
 }
 
-/** 從棄牌區詠唱指定的卡（快速冷卻） */
+/** 從棄牌區詠唱指定的卡（快速冷卻）：一樣要付詠唱費用，也佔用本回合詠唱次數 */
 export function chantFromDiscard(state: GameState, seat: Seat, iid: number): boolean {
   const side = state.sides[seat];
   const inst = side.discard.find((c) => c.iid === iid);
@@ -325,11 +326,16 @@ export function chantFromDiscard(state: GameState, seat: Seat, iid: number): boo
   const def = card(inst.defId);
   if (!def.chant) return false;
 
+  if (chantsLeft(state, seat, RULES.chantsPerTurn) <= 0) {
+    log(state, seat, `${seatLabel(seat)}本回合的詠唱次數已用完，無法詠唱「${def.name}」。`, 'info');
+    return false;
+  }
   if (!payChantCost(state, seat, chantCost(state, seat, def))) {
     log(state, seat, `${seatLabel(seat)}無法支付「${def.name}」的詠唱費用。`, 'info');
     return false;
   }
   removeFrom(side.discard, iid);
+  side.chantsUsedThisTurn += 1;
   performChant(state, seat, inst, '棄牌區');
   return true;
 }
@@ -853,6 +859,10 @@ export function applyEffect(state: GameState, seat: Seat, effect: Effect, source
     // ── 詠唱 ──
 
     case 'chantFromDiscard': {
+      if (chantsLeft(state, seat, RULES.chantsPerTurn) <= 0) {
+        log(state, seat, `「${sourceName}」：本回合的詠唱次數已用完。`, 'info');
+        break;
+      }
       const pool = chantableInDiscard(state, seat);
       if (pool.length === 0) {
         log(state, seat, `「${sourceName}」：棄牌區沒有付得起詠唱費用的卡。`, 'info');

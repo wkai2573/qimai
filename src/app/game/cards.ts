@@ -1101,7 +1101,7 @@ const MAGE_CARDS: CardDef[] = [
     2,
     1,
     [{ type: 'chantFromDiscard' }],
-    '選擇棄牌區 1 張卡作為詠唱打出（需支付詠唱費用，不佔本回合詠唱次數）。',
+    '選擇棄牌區 1 張卡作為詠唱打出（需支付詠唱費用，佔用本回合詠唱次數）。',
   ),
   action(
     'mg_jiasu',
@@ -1136,15 +1136,15 @@ const MAGE_CARDS: CardDef[] = [
     '捨棄怒氣區 X 張卡（X = 棄牌區名稱包含「火」的招式卡張數）。',
   ),
 
-  // 事件（沒有持續時間：直到被其他事件取代）
+  // 事件
   event(
     'mg_lichang',
     '秘法力場',
     3,
     1,
     [],
-    '你每次詠唱時，在此卡上放置被詠唱卡防禦值數量的持續時間指示物。你防禦時，防禦值 + 此卡上的指示物數。（無持續時間，直到被其他事件取代）',
-    { extra: { countersOnChant: true, guardFromCounters: true } },
+    '【持續時間10】你每次詠唱時，在此卡上放置被詠唱卡防禦值數量的持續時間指示物。你防禦時，防禦值 + 此卡上的指示物數。',
+    { duration: 10, extra: { countersOnChant: true, guardFromCounters: true } },
   ),
   event(
     'mg_modao',
@@ -1152,8 +1152,8 @@ const MAGE_CARDS: CardDef[] = [
     1,
     1,
     [],
-    '此卡離開事件區時，從棄牌區選擇 X 張招式卡加入手牌（X = 此卡上的持續時間指示物）。（無持續時間，直到被其他事件取代）',
-    { extra: { onLeave: [{ type: 'salvageByCounters', filter: { kind: 'technique' } }] } },
+    '【持續時間3】此卡離開事件區時，從棄牌區選擇 X 張招式卡加入手牌（X = 此卡上的持續時間指示物）。',
+    { duration: 3, extra: { onLeave: [{ type: 'salvageByCounters', filter: { kind: 'technique' } }] } },
   ),
 
   // 裝備
