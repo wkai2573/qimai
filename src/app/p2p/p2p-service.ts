@@ -1,5 +1,5 @@
 import { Injectable, signal } from '@angular/core';
-import { Peer, type DataConnection } from 'peerjs';
+import type { DataConnection, Peer } from 'peerjs';
 
 import type { ConnectionStatus, NetworkRole, P2PMessage } from './p2p-types';
 
@@ -34,6 +34,17 @@ export class P2PService {
     this.messageHandler = handler;
   }
 
+  /** peerjs 只有 P2P 對戰會用到，改為動態載入以縮小初始 bundle */
+  private async loadPeer(): Promise<typeof Peer> {
+    try {
+      return (await import('peerjs')).Peer;
+    } catch (e) {
+      this.errorMessage.set('載入連線模組失敗，請檢查網路後重試');
+      this.status.set('error');
+      throw e;
+    }
+  }
+
   /** 房主建立房間 */
   async createRoom(preferredCode?: string): Promise<string> {
     this.disconnect();
@@ -43,10 +54,11 @@ export class P2PService {
 
     const code = preferredCode ? normalizeRoomCode(preferredCode) : generateRoomCode();
     const peerId = `${PEER_PREFIX}${code}`;
+    const PeerCtor = await this.loadPeer();
 
     return new Promise((resolve, reject) => {
       try {
-        const peer = new Peer(peerId, {
+        const peer = new PeerCtor(peerId, {
           debug: 1,
         });
 
@@ -109,10 +121,11 @@ export class P2PService {
     this.roomCode.set(code);
 
     const targetPeerId = `${PEER_PREFIX}${code}`;
+    const PeerCtor = await this.loadPeer();
 
     return new Promise((resolve, reject) => {
       try {
-        const peer = new Peer({
+        const peer = new PeerCtor({
           debug: 1,
         });
 
