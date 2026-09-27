@@ -130,7 +130,7 @@ export type ModifierTarget =
   | 'recoverAmount' // 回復量
   | 'cost' // 使用費用
   | 'extraGuard' // 防禦判定時額外翻開的張數
-  | 'chantDamage' // 詠唱傷害加成
+  | 'chantDamage' // 詠唱傷害加成（詠唱時直接造成的傷害）
   | 'damageReduction' // 減免傷害
   | 'immuneTrickSecret' // 免疫特技與密技傷害與效果
   | 'chantCostFixed' // 詠唱費用改為固定值（取最小者）
@@ -314,18 +314,20 @@ export interface QuestDef {
   blockText: string;
 }
 
-/** 詠唱特性定義 */
+/**
+ * 詠唱特性定義。
+ * 詠唱 = 主要階段支付詠唱費用，結算下面的詠唱效果，然後這張卡直接放到招式區，
+ * 戰鬥時作為額外出招（不佔階級、不影響出招順序），照常造成傷害。
+ */
 export interface ChantDef {
   cost: number;
-  /** 戰鬥引爆時造成的傷害 */
+  /** 詠唱時直接對對手造成的傷害（不觸發防禦判定） */
   damage?: number;
+  /** 此卡在招式區時，對手的防禦判定 −N */
   guardReduction?: number;
-  /**
-   * 「詠唱：此卡傷害 +X」的 X。
-   * 完全詠唱這類「獲得詠唱效果」的卡用它計算加成；未設定時以 damage 當作加成。
-   */
+  /** 「詠唱：此卡傷害 +X」的 X：此卡在招式區出招時的傷害加成 */
   bonus?: number;
-  /** 條件成立時引爆傷害再 +N（於戰鬥引爆時判定） */
+  /** 條件成立時此卡傷害再 +N（戰鬥開始時判定） */
   conditionalBonus?: { when: Condition; damage: number };
   /** 詠唱時立即結算的效果 */
   effects?: Effect[];
@@ -379,7 +381,7 @@ export interface CardDef {
   /** 【狂怒】使用後不送棄牌區，改置於怒氣區最底下 */
   toAngerBottom?: boolean;
 
-  /** 【魔法】詠唱特性：可在主要階段支付費用打出，戰鬥階段作為額外出招引爆 */
+  /** 【魔法】詠唱特性：主要階段支付費用詠唱，結算詠唱效果後放到招式區，戰鬥時作為額外出招 */
   chant?: ChantDef;
 
   /** 【氣功】冷卻回合數：使用後進入冷卻區，累積 X 個指示物後進棄牌區 */
@@ -551,8 +553,8 @@ export interface SideState {
   currentQuest: CardInstance | null;
   /** 氣功專屬：冷卻區 */
   cooldownZone: CooldownCard[];
-  /** 魔法專屬：本回合已詠唱的招式卡 */
-  chantedCards: CardInstance[];
+  /** 招式區（戰鬥開始前）：本回合詠唱的招式直接放在這裡，戰鬥開始時成為額外出招 */
+  techniqueZone: CardInstance[];
   /** 本回合已詠唱次數（上限 RULES.chantsPerTurn） */
   chantsUsedThisTurn: number;
   /** 免費卡清單（例如拋下狠話讓替罪羊免費） */
@@ -575,21 +577,15 @@ export interface CombatPlay {
   card: CardInstance;
   /** 結算當下的實際傷害（含增益） */
   damage: number;
-}
-
-export interface ChantCombatPlay {
-  card: CardInstance;
-  damage: number;
-  guardReduction?: number;
+  /** 詠唱放進招式區的額外出招：不佔階級，也不影響出招順序 */
+  chanted?: boolean;
 }
 
 export interface CombatState {
   attacker: Seat;
   defender: Seat;
-  /** 出招步驟打出的招式，依 tier 順序 */
+  /** 招式區的出招：詠唱的額外出招在前，之後是出招步驟依 tier 順序打出的招式 */
   plays: CombatPlay[];
-  /** 詠唱特殊出招 */
-  chantPlays: ChantCombatPlay[];
   /** 防禦判定步驟翻開的防禦卡 */
   defenseCards: CardInstance[];
   /** 防禦值總和 */

@@ -88,7 +88,7 @@ function emptySide(seat: Seat, character: CharacterId = 'rage'): SideState {
     questDeck: [],
     currentQuest: null,
     cooldownZone: [],
-    chantedCards: [],
+    techniqueZone: [],
     chantsUsedThisTurn: 0,
     freeNextCards: [],
     immuneTrickSecretNextTurn: false,
@@ -446,9 +446,9 @@ export function beginTurn(state: GameState, seat: Seat): void {
   resetTurnStats(state.sides.npc);
 
   const activeSide = state.sides[seat];
-  // 正常情況戰鬥歸還時就清空了；保險起見，殘留的詠唱卡送去該去的地方而不是直接消失
-  for (const c of activeSide.chantedCards) routeCardAfterPlay(state, seat, c);
-  activeSide.chantedCards = [];
+  // 正常情況戰鬥開始時就移進戰鬥了；保險起見，招式區殘留的卡送去該去的地方而不是直接消失
+  for (const c of activeSide.techniqueZone) routeCardAfterPlay(state, seat, c);
+  activeSide.techniqueZone = [];
   activeSide.chantsUsedThisTurn = 0;
   activeSide.freeNextCards = [];
   activeSide.immuneTrickSecretNextTurn = false;
@@ -684,7 +684,7 @@ export function chantPlayability(state: GameState, seat: Seat, iid: number): Pla
   return { ok: true };
 }
 
-/** 詠唱招式：可在主要階段支付費用打出，戰鬥階段作為額外出招引爆 */
+/** 詠唱招式：主要階段支付詠唱費用，結算詠唱效果後直接放到招式區，戰鬥時作為額外出招 */
 export function chantTechnique(state: GameState, seat: Seat, iid: number): PlayResult {
   const check = chantPlayability(state, seat, iid);
   if (!check.ok) return check;

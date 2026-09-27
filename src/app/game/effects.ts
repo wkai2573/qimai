@@ -37,6 +37,7 @@ import type {
   Effect,
   GameState,
   Seat,
+  TechniqueTier,
 } from './types';
 import { EQUIP_LABEL, EQUIP_LIMITS, OTHER_SEAT, RULES } from './types';
 
@@ -260,24 +261,69 @@ export function payChantCost(state: GameState, seat: Seat, cost: number): boolea
   return true;
 }
 
-/** 「此卡傷害 +X」的 X（含條件成立時的額外加成），供獲得詠唱效果的卡計算 */
+/** 「此卡傷害 +X」的 X（含條件成立時的額外加成），供招式區的詠唱卡與獲得詠唱效果的卡計算 */
 export function chantBonusOf(state: GameState, seat: Seat, def: CardDef): number {
   if (!def.chant) return 0;
-  let bonus = def.chant.bonus ?? def.chant.damage ?? 0;
+  let bonus = def.chant.bonus ?? 0;
   const cb = def.chant.conditionalBonus;
   if (cb && checkCondition(state, seat, cb.when)) bonus += cb.damage;
   return bonus;
 }
 
-/** 詠唱卡在戰鬥開場引爆的傷害 */
-export function chantDetonationDamage(state: GameState, seat: Seat, inst: CardInstance): number {
+/** 替罪羊：對手處於免疫狀態時，特技與密技造成 0 傷害 */
+function immuneTo(state: GameState, seat: Seat, tier: TechniqueTier | undefined): boolean {
+  return state.sides[OTHER_SEAT[seat]].immuneTrickSecretNextTurn && (tier === 'trick' || tier === 'secret');
+}
+
+/**
+ * 詠唱傷害：直接對對手造成 N 點傷害，不觸發防禦判定，也不是戰鬥傷害（不吃減傷）。
+ * tier 是造成這次傷害的招式階級（獲得詠唱效果時是那張密奧義），替罪羊依它判定。
+ */
+function chantStrike(state: GameState, seat: Seat, def: CardDef, sourceName: string, tier = def.tier): void {
+  const base = def.chant?.damage ?? 0;
+  if (base <= 0) return;
+
+  const oppSeat = OTHER_SEAT[seat];
+  if (immuneTo(state, seat, tier)) {
+    log(state, oppSeat, `【替罪羊生效】${seatLabel(oppSeat)}免疫了「${sourceName}」的詠唱傷害！`, 'combat');
+    return;
+  }
+
+  const n = Math.max(0, base + modifier(state, seat, 'chantDamage'));
+  const res = millToAngerCards(state, oppSeat, n);
+  // 重構後才補完的傷害也算是這次詠唱造成的
+  state.sides[seat].stats.damageDealt += res.count + res.deferred;
+  const names = res.cards.map((c) => `「${nameOf(c)}」`).join('、');
+  log(
+    state,
+    oppSeat,
+    `【詠唱傷害】「${sourceName}」不觸發防禦，${seatLabel(oppSeat)}受到 ${res.count} 點傷害${names ? `，將 ${names} 送入怒氣區` : ''}${
+      res.deferred > 0 ? `，重構後再承受剩下的 ${res.deferred} 點` : ''
+    }。`,
+    'combat',
+  );
+}
+
+/** 招式區的詠唱卡在戰鬥中的傷害：基礎傷害 + 招式傷害增益 + 詠唱加成 */
+export function chantedPlayDamage(state: GameState, seat: Seat, inst: CardInstance): number {
   const def = card(inst.defId);
-  let damage = (def.chant?.damage ?? 0) + modifier(state, seat, 'chantDamage');
-  // 「名稱含火的招式 +2」這類只加成特定卡的增益，也作用在詠唱引爆上
-  damage += modifierFor(state, seat, 'techniqueDamage', def, inst.iid) - modifier(state, seat, 'techniqueDamage');
-  const cb = def.chant?.conditionalBonus;
-  if (cb && checkCondition(state, seat, cb.when)) damage += cb.damage;
+  if (immuneTo(state, seat, def.tier)) return 0;
+  let damage = (def.damage ?? 0) + modifierFor(state, seat, 'techniqueDamage', def, inst.iid) + chantBonusOf(state, seat, def);
+  if (def.tier === 'hidden') damage += modifierFor(state, seat, 'hiddenDamage', def, inst.iid);
   return Math.max(0, damage);
+}
+
+/** 把招式區的詠唱卡轉成戰鬥中的額外出招 */
+export function toChantedPlay(state: GameState, seat: Seat, inst: CardInstance): CombatPlay {
+  const def = card(inst.defId);
+  const play: CombatPlay = {
+    tier: def.tier ?? 'trick',
+    card: inst,
+    damage: chantedPlayDamage(state, seat, inst),
+    chanted: true,
+  };
+  log(state, seat, `【詠唱】${seatLabel(seat)}招式區的「${def.name}」作為額外出招（造成 ${play.damage} 點打擊）。`, 'combat');
+  return play;
 }
 
 /** 詠唱完成時的共同處理：詠唱次數 +1，秘法力場放指示物 */
@@ -290,21 +336,28 @@ export function onChanted(state: GameState, seat: Seat, def: CardDef): void {
 }
 
 /**
- * 把一張已付完費用的卡詠唱打出：放進詠唱區，結算卡片效果與詠唱效果。
+ * 把一張已付完費用的卡詠唱打出：結算卡片效果與詠唱效果，這張卡直接放到招式區。
  * 呼叫方負責支付費用與扣詠唱次數。
  */
 export function performChant(state: GameState, seat: Seat, inst: CardInstance, from: '手牌' | '棄牌區'): void {
   const side = state.sides[seat];
   const def = card(inst.defId);
 
-  side.chantedCards.push(inst);
+  // 先放進招式區再結算效果：效果途中遊戲結束或觸發重構，這張卡也不會懸空
+  const combat = state.combat;
+  if (combat && combat.attacker === seat && combat.step === 'declare') {
+    combat.plays.push(toChantedPlay(state, seat, inst));
+  } else {
+    side.techniqueZone.push(inst);
+  }
   side.stats.playKind[def.kind] += 1;
   if (def.tier) side.stats.playTier[def.tier] += 1;
   side.stats.techPlayed.push(def.id);
 
-  log(state, seat, `${seatLabel(seat)}從${from}詠唱了「${def.name}」（${def.chant?.text ?? ''}）。`, 'combat');
+  log(state, seat, `${seatLabel(seat)}從${from}詠唱了「${def.name}」（${def.chant?.text ?? ''}），此卡放到招式區。`, 'combat');
 
   applyEffects(state, seat, def.effects, def.name, { sourceIid: inst.iid });
+  chantStrike(state, seat, def, def.name);
   applyEffects(state, seat, def.chant?.effects, def.name, { sourceIid: inst.iid });
   onChanted(state, seat, def);
 }
@@ -340,15 +393,21 @@ export function chantFromDiscard(state: GameState, seat: Seat, iid: number): boo
   return true;
 }
 
-/** 獲得指定招式的詠唱效果：結算它們的詠唱效果，回傳傷害加成總和 */
+/** 獲得指定招式的詠唱效果：結算它們的詠唱傷害與詠唱效果，回傳「此卡傷害 +X」的加成總和 */
 function gainChantsOf(state: GameState, seat: Seat, defs: readonly CardDef[], sourceName: string, ctx: EffectContext): number {
   let bonus = 0;
   for (const d of defs) {
     if (!d.chant) continue;
     bonus += chantBonusOf(state, seat, d);
+    chantStrike(state, seat, d, sourceName, ctx.play?.tier);
     applyEffects(state, seat, d.chant.effects, sourceName, ctx);
   }
   return bonus;
+}
+
+/** AI 從棄牌區挑詠唱卡時的粗略價值：詠唱傷害 + 之後在招式區的傷害 */
+function chantValue(def: CardDef): number {
+  return (def.chant?.damage ?? 0) + (def.damage ?? 0) + (def.chant?.bonus ?? 0);
 }
 
 // ─────────────────────────────────────────────
@@ -893,7 +952,7 @@ export function applyEffect(state: GameState, seat: Seat, effect: Effect, source
         });
         break;
       }
-      const best = [...pool].sort((a, b) => (card(b.defId).chant?.damage ?? 0) - (card(a.defId).chant?.damage ?? 0))[0];
+      const best = [...pool].sort((a, b) => chantValue(card(b.defId)) - chantValue(card(a.defId)))[0];
       chantFromDiscard(state, seat, best.iid);
       break;
     }

@@ -3,13 +3,14 @@
  *
  * 規則流程（依原規則書）：
  *   出招步驟   攻擊方依序打出特技 → 密技 → 奧義 → 密奧義，各最多 1 張，可以少出
+ *              （主要階段詠唱、已在招式區的卡是額外出招，不佔階級也不影響順序）
  *   防禦判定   防禦方翻開自己牌組頂 1 張作為防禦卡（裝備可增加張數）
  *   傷害計算   X = 出招傷害總和 − 防禦值，防禦方牌組頂 X 張進怒氣區
  *   歸還       打出的招式與防禦卡進各自持有者的棄牌區
  */
 
 import { card } from './cards';
-import { applyEffects, chantDetonationDamage, checkCondition } from './effects';
+import { applyEffects, checkCondition, toChantedPlay } from './effects';
 import {
   canPlayWithCooldown,
   computeCost,
@@ -27,7 +28,7 @@ import {
   toDiscard,
 } from './internal';
 import { detectCombos, evaluateQuest } from './quests';
-import type { CardInstance, ChantCombatPlay, CombatPlay, CombatState, GameState, Seat } from './types';
+import type { CardInstance, CombatPlay, CombatState, GameState, Seat } from './types';
 import { OTHER_SEAT, TECHNIQUE_LABEL, TECHNIQUE_ORDER } from './types';
 
 export interface PlayResult {
@@ -40,25 +41,16 @@ export interface PlayResult {
 // ─────────────────────────────────────────────
 
 export function beginCombat(state: GameState, attacker: Seat): void {
-  const chantPlays: ChantCombatPlay[] = [];
   const side = state.sides[attacker];
 
-  for (const c of side.chantedCards) {
-    const def = card(c.defId);
-    const damage = chantDetonationDamage(state, attacker, c);
-    chantPlays.push({
-      card: c,
-      damage,
-      guardReduction: def.chant?.guardReduction ?? 0,
-    });
-    log(state, attacker, `【詠唱引爆】${seatLabel(attacker)}的「${def.name}」釋放魔能，追加 ${damage} 點法術傷害！`, 'combat');
-  }
+  // 主要階段詠唱的卡已經在招式區：傷害在這時才計算，主要階段拿到的增益都吃得到
+  const plays = side.techniqueZone.map((c) => toChantedPlay(state, attacker, c));
+  side.techniqueZone = [];
 
   state.combat = {
     attacker,
     defender: OTHER_SEAT[attacker],
-    plays: [],
-    chantPlays,
+    plays,
     defenseCards: [],
     defenseGuard: 0,
     damage: 0,
@@ -90,8 +82,9 @@ export function techniquePlayability(state: GameState, seat: Seat, iid: number):
     return { ok: false, reason: '冷卻區已有同名卡，達到儲存上限' };
   }
 
+  // 詠唱的額外出招不佔階級，出招順序只看出招步驟打出的招式
   const idx = TECHNIQUE_ORDER.indexOf(def.tier);
-  const last = combat.plays[combat.plays.length - 1];
+  const last = combat.plays.filter((p) => !p.chanted).pop();
   const lastIdx = last ? TECHNIQUE_ORDER.indexOf(last.tier) : -1;
   if (idx <= lastIdx) {
     return { ok: false, reason: '必須依 特技→密技→奧義→密奧義 的順序出招' };
@@ -209,8 +202,8 @@ export function resolveDefense(state: GameState): void {
 
   combat.step = 'defense';
 
-  // 攻擊方既沒有出常規招式，也沒有詠唱招式 → 不進防禦判定，直接結束戰鬥
-  if (combat.plays.length === 0 && combat.chantPlays.length === 0) {
+  // 攻擊方的招式區沒有任何招式（沒出招也沒詠唱）→ 不進防禦判定，直接結束戰鬥
+  if (combat.plays.length === 0) {
     log(state, combat.attacker, `${seatLabel(combat.attacker)}沒有出招，戰鬥結束。`, 'combat');
     combat.step = 'done';
     return;
@@ -234,8 +227,10 @@ export function resolveDefense(state: GameState): void {
 
   const guardFromCards = flipped.reduce((sum, c) => sum + card(c.defId).guard, 0);
   const guardBonus = modifier(state, combat.defender, 'guardValue') + eventCounterGuard(state, combat.defender);
-  const guardReduction =
-    combat.chantPlays.reduce((sum, cp) => sum + (cp.guardReduction ?? 0), 0) + guardBreak(state, combat);
+  const chantReduction = combat.plays
+    .filter((p) => p.chanted)
+    .reduce((sum, p) => sum + (card(p.card.defId).chant?.guardReduction ?? 0), 0);
+  const guardReduction = chantReduction + guardBreak(state, combat);
   combat.defenseGuard = Math.max(0, guardFromCards + guardBonus - guardReduction);
 
   const shown = flipped.map((c) => `「${nameOf(c)}」(防禦 ${card(c.defId).guard})`).join('、');
@@ -244,7 +239,7 @@ export function resolveDefense(state: GameState): void {
     combat.defender,
     `${seatLabel(combat.defender)}翻開防禦卡：${shown || '（無）'}${
       guardBonus ? `，防禦增益 +${guardBonus}` : ''
-    }${guardReduction ? `，詠唱削弱 -${guardReduction}` : ''} → 總防禦值 ${combat.defenseGuard}。`,
+    }${guardReduction ? `，防禦削弱 -${guardReduction}` : ''} → 總防禦值 ${combat.defenseGuard}。`,
     'combat',
   );
 }
@@ -262,7 +257,7 @@ function eventCounterGuard(state: GameState, defender: Seat): number {
 /** 【防滑手套】攻擊方條件成立時，對手防禦值 − 我方最後一張招式的防禦值 */
 function guardBreak(state: GameState, combat: CombatState): number {
   const attacker = state.sides[combat.attacker];
-  const last = combat.plays[combat.plays.length - 1]?.card ?? combat.chantPlays[combat.chantPlays.length - 1]?.card;
+  const last = combat.plays[combat.plays.length - 1]?.card;
   if (!last) return 0;
 
   let total = 0;
@@ -304,8 +299,7 @@ export function resolveDamage(state: GameState): void {
   combat.step = 'damage';
 
   const techTotal = combat.plays.reduce((sum, p) => sum + p.damage, 0);
-  const chantTotal = combat.chantPlays.reduce((sum, p) => sum + p.damage, 0);
-  const grossTotal = techTotal + chantTotal + elementBonus(state, combat.attacker);
+  const grossTotal = techTotal + elementBonus(state, combat.attacker);
   const netAfterGuard = Math.max(0, grossTotal - combat.defenseGuard);
   const damageReduction = modifier(state, combat.defender, 'damageReduction');
   combat.damage = Math.max(0, netAfterGuard - damageReduction);
@@ -331,7 +325,7 @@ export function resolveDamage(state: GameState): void {
   log(
     state,
     combat.defender,
-    `結算傷害：攻擊 ${grossTotal}（招式 ${techTotal} + 詠唱 ${chantTotal}）− 防禦 ${combat.defenseGuard}${
+    `結算傷害：攻擊 ${grossTotal}（招式 ${techTotal}）− 防禦 ${combat.defenseGuard}${
       damageReduction ? ` − 減傷 ${damageReduction}` : ''
     } = ${combat.damage} 點。${seatLabel(combat.defender)}受到 ${moved} 點傷害${
       movedNames ? `，將 ${movedNames} 送入怒氣區` : ''
@@ -350,19 +344,10 @@ export function returnCombatCards(state: GameState): void {
 
   combat.step = 'return';
 
-  // 攻擊方打出的招式卡與詠唱卡依屬性（怒底 / 冷卻 / 棄牌）送回
+  // 攻擊方招式區的卡（含詠唱的額外出招）依屬性（怒底 / 冷卻 / 棄牌）送回
   for (const p of combat.plays) {
     routeCardAfterPlay(state, combat.attacker, p.card);
   }
-  for (const cp of combat.chantPlays) {
-    routeCardAfterPlay(state, combat.attacker, cp.card);
-  }
-  // 戰鬥開始後才詠唱的卡沒有引爆，但一樣要離開詠唱區
-  const attackerSide = state.sides[combat.attacker];
-  for (const c of attackerSide.chantedCards) {
-    if (!combat.chantPlays.some((cp) => cp.card.iid === c.iid)) routeCardAfterPlay(state, combat.attacker, c);
-  }
-  attackerSide.chantedCards = [];
 
   // 防禦卡一律進入防禦方的棄牌區
   toDiscard(state, combat.defender, combat.defenseCards);
@@ -382,7 +367,7 @@ export function finishCombat(state: GameState): void {
   if (!combat || combat.step === 'done') return;
 
   resolveDefense(state);
-  if (combat.plays.length > 0 || combat.chantPlays.length > 0) resolveDamage(state);
+  if (combat.plays.length > 0) resolveDamage(state);
   returnCombatCards(state);
 
   combat.step = 'done';

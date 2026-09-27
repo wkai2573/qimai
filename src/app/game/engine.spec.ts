@@ -958,33 +958,87 @@ describe('角色特異機制', () => {
     expect(g.sides.player.anger[1].iid).toBe(existing.iid);
   });
 
-  it('秘法：主要階段詠唱招式，戰鬥階段作為額外詠唱打擊結算', () => {
+  it('秘法：詠唱時先結算詠唱傷害（不觸發防禦），此卡直接放到招式區，戰鬥時作為額外出招', () => {
     const g = createGame(1, { manualLifeSetup: false, playerCharacter: 'mage' });
     g.phase = 'main';
     g.activeSeat = 'player';
 
-    // 奧術飛彈：chant cost 1, damage 2
+    // 奧術飛彈：詠唱(1) 對手受到 2 點傷害；基礎傷害 2
     setHand(g, 'player', ['mg_tech_feidan']);
     const target = g.sides.player.hand[0];
-
-    const chantRes = chantTechnique(g, 'player', target.iid);
-    expect(chantRes.ok).toBe(true);
-    expect(g.sides.player.chantedCards.length).toBe(1);
-
-    // 進入戰鬥階段
-    g.phase = 'combat';
-    beginCombat(g, 'player');
-
-    // 詠唱招式轉入 combat.chantPlays
-    expect(g.combat!.chantPlays.length).toBe(1);
-    expect(g.combat!.chantPlays[0].damage).toBe(2);
-
-    // 防禦方翻開防禦值 0 的卡（魔脈探尋），結算後造成 2 點全額傷害進 NPC 怒氣
-    stackDeckTop(g, 'npc', ['mg_tanxun']);
     const npcAngerBefore = g.sides.npc.anger.length;
+
+    expect(chantTechnique(g, 'player', target.iid).ok).toBe(true);
+    expect(g.sides.npc.anger.length - npcAngerBefore).toBe(2);
+    expect(g.sides.player.techniqueZone.map((c) => c.iid)).toEqual([target.iid]);
+
+    // 進入戰鬥階段：招式區的詠唱卡成為額外出招
+    enterCombat(g);
+    expect(g.sides.player.techniqueZone).toEqual([]);
+    expect(g.combat!.plays).toHaveLength(1);
+    expect(g.combat!.plays[0]).toMatchObject({ card: target, damage: 2, chanted: true });
+
+    // 防禦方翻開防禦值 0 的卡（魔脈探尋），戰鬥再造成 2 點全額傷害
+    stackDeckTop(g, 'npc', ['mg_tanxun']);
+    const angerBeforeCombat = g.sides.npc.anger.length;
     finishCombat(g);
 
-    expect(g.sides.npc.anger.length - npcAngerBefore).toBe(2);
+    expect(g.sides.npc.anger.length - angerBeforeCombat).toBe(2);
+    expect(g.sides.player.discard.some((c) => c.iid === target.iid)).toBe(true);
+  });
+
+  it('隕石天降：詠唱時對手受到 5 點傷害（不觸發防禦），戰鬥時在招式區再造成 5 點，且不佔奧義的階級', () => {
+    const g = createGame(1, { manualLifeSetup: false, playerCharacter: 'mage' });
+    const npc = g.sides.npc;
+    mainPhaseFor(g, 'player');
+    setHand(g, 'player', ['mg_tech_yunshi', 'mg_tech_jiguang']);
+    const meteor = g.sides.player.hand[0];
+    const angerBefore = npc.anger.length;
+    const deckBefore = npc.deck.length;
+
+    expect(chantTechnique(g, 'player', meteor.iid).ok).toBe(true);
+    expect(npc.anger.length - angerBefore).toBe(5);
+    expect(npc.deck.length).toBe(deckBefore - 5); // 沒有翻防禦卡
+    expect(g.sides.player.stats.damageDealt).toBe(5);
+
+    enterCombat(g);
+    expect(g.combat!.plays[0]).toMatchObject({ card: meteor, tier: 'ultimate', damage: 5, chanted: true });
+
+    // 詠唱的額外出招不佔階級：戰鬥時還能再出一張奧義
+    expect(playTechnique(g, 'player', g.sides.player.hand[0].iid).ok).toBe(true);
+
+    stackDeckTop(g, 'npc', ['mg_tanxun']); // 防禦 0
+    const angerBeforeCombat = npc.anger.length;
+    finishCombat(g);
+    expect(npc.anger.length - angerBeforeCombat).toBe(5 + 6);
+  });
+
+  it('寒冰指：詠唱時對手受到 1 點傷害；在招式區時對手防禦值 -1', () => {
+    const g = createGame(1, { manualLifeSetup: false });
+    mainPhaseFor(g, 'player');
+    setHand(g, 'player', ['mg_tech_bingzhi']);
+    const angerBefore = g.sides.npc.anger.length;
+    chantTechnique(g, 'player', g.sides.player.hand[0].iid);
+    expect(g.sides.npc.anger.length - angerBefore).toBe(1);
+
+    enterCombat(g);
+    stackDeckTop(g, 'npc', ['cm_tech_zhengquan']); // 防禦 2
+    finishCombat(g);
+    expect(g.combat!.defenseGuard).toBe(1);
+  });
+
+  it('替罪羊：對手免疫特技與密技時，詠唱特技的詠唱傷害與戰鬥傷害都是 0', () => {
+    const g = createGame(1, { manualLifeSetup: false });
+    g.sides.npc.immuneTrickSecretNextTurn = true;
+    mainPhaseFor(g, 'player');
+    setHand(g, 'player', ['mg_tech_feidan']);
+    const angerBefore = g.sides.npc.anger.length;
+
+    chantTechnique(g, 'player', g.sides.player.hand[0].iid);
+    expect(g.sides.npc.anger.length).toBe(angerBefore);
+
+    enterCombat(g);
+    expect(g.combat!.plays[0].damage).toBe(0);
   });
 
   it('氣功：冷卻卡打出後進入冷卻區，冷卻期間提供常駐 Buff，計時結束送入棄牌區', () => {
@@ -1144,7 +1198,7 @@ describe('事件區與持續時間', () => {
     const wall = g.sides.player.hand.find((c) => c.defId === 'mg_el_bingqiang')!;
     expect(chantTechnique(g, 'player', wall.iid).ok).toBe(true);
     enterCombat(g);
-    expect(g.combat!.chantPlays[0].damage).toBe(6);
+    expect(g.combat!.plays[0].damage).toBe(6); // 基礎 1 + 5
   });
 
   it('整理魔導書離開事件區時，持有者依指示物數從棄牌區取回招式', () => {
@@ -1407,10 +1461,10 @@ describe('秘法：詠唱與指示物', () => {
     chantTechnique(g, 'player', g.sides.player.hand[0].iid);
 
     enterCombat(g);
-    expect(g.combat!.chantPlays[0].damage).toBe(1);
+    expect(g.combat!.plays[0].damage).toBe(1);
 
     playTechnique(g, 'player', g.sides.player.hand[0].iid);
-    expect(g.combat!.plays[0].damage).toBe(4);
+    expect(g.combat!.plays[1].damage).toBe(4);
   });
 
   it('完全詠唱：獲得本回合打出招式的詠唱加成，並算作額外詠唱 1 次', () => {
@@ -1422,8 +1476,23 @@ describe('秘法：詠唱與指示物', () => {
 
     enterCombat(g);
     expect(playTechnique(g, 'player', side.hand[0].iid).ok).toBe(true);
-    expect(g.combat!.plays[0].damage).toBe(3); // 基礎 1 + 2
+    expect(g.combat!.plays[0].damage).toBe(4); // 招式區的火球：基礎 2 + 2
+    expect(g.combat!.plays[1].damage).toBe(3); // 完全詠唱：基礎 1 + 2
     expect(side.stats.chants).toBe(2);
+  });
+
+  it('完全詠唱獲得隕石天降的詠唱效果：對手再受到 5 點詠唱傷害（不觸發防禦）', () => {
+    const g = createGame(1, { manualLifeSetup: false });
+    const npc = g.sides.npc;
+    mainPhaseFor(g, 'player');
+    setHand(g, 'player', ['mg_tech_yunshi', 'mg_tech_wanquan']);
+    chantTechnique(g, 'player', g.sides.player.hand[0].iid);
+
+    enterCombat(g);
+    const angerBefore = npc.anger.length;
+    expect(playTechnique(g, 'player', g.sides.player.hand[0].iid).ok).toBe(true);
+    expect(npc.anger.length - angerBefore).toBe(5);
+    expect(g.combat!.plays[1].damage).toBe(1); // 隕石天降沒有「此卡傷害 +X」
   });
 
   it('電光石火：捨棄手牌，棄牌區的電／火招式洗回牌組，此擊 + 洗回的張數', () => {
@@ -1440,7 +1509,7 @@ describe('秘法：詠唱與指示物', () => {
 
     expect(side.hand).toEqual([]);
     expect(side.discard.map((c) => c.defId).sort()).toEqual(['cm_tiandi', 'cm_xinjue']);
-    expect(g.combat!.plays[1].damage).toBe(7); // 5 + 洗回 2 張
+    expect(g.combat!.plays[2].damage).toBe(7); // 5 + 洗回 2 張（plays[0] 是招式區的火球）
   });
 
   it('電球：可以選「不發動」；選了就捨棄那張手牌，接著從棄牌區取回「電」招式', () => {
@@ -1479,7 +1548,7 @@ describe('秘法：持續時間與快速冷卻', () => {
     expect(g.pending?.kind).toBe('chantFromDiscard');
     resolveChoice(g, g.pending!.candidates[0].iid);
 
-    expect(side.chantedCards.map((c) => c.defId)).toEqual(['mg_el_huoqiu']);
+    expect(side.techniqueZone.map((c) => c.defId)).toEqual(['mg_el_huoqiu']);
     expect(side.chantsUsedThisTurn).toBe(1);
     // 次數已經用掉，手牌的冰錐不能再詠唱
     expect(chantTechnique(g, 'player', side.hand[0].iid).ok).toBe(false);

@@ -186,7 +186,7 @@ describe('App', () => {
     }
   });
 
-  it('冷卻區與詠唱區位於牌堆區最左側，且僅在該區域有牌時才顯示', async () => {
+  it('冷卻區位於牌堆區最左側，且僅在該區域有牌時才顯示', async () => {
     const fixture = TestBed.createComponent(App);
     const app = fixture.componentInstance;
     await fixture.whenStable();
@@ -195,12 +195,12 @@ describe('App', () => {
     const leftContainers = el.querySelectorAll('.pile-stacks-left');
     expect(leftContainers.length).toBe(2);
 
-    // 初始狀態下雙方冷卻與詠唱皆為空，不應渲染任何按鈕
+    // 初始狀態下雙方冷卻區皆為空，不應渲染任何按鈕
     for (const container of Array.from(leftContainers)) {
       expect(container.children.length).toBe(0);
     }
 
-    // 當我方有冷卻卡與詠唱卡時，最左側容器顯示這兩者
+    // 當我方有冷卻卡時，最左側容器顯示冷卻區
     (app.store as any)._state.update((s: any) => ({
       ...s,
       sides: {
@@ -210,9 +210,6 @@ describe('App', () => {
           cooldownZone: [
             { card: { iid: 888, defId: 'mg_tech_huoqiu' }, counter: 1, maxCounter: 3 },
           ],
-          chantedCards: [
-            { iid: 889, defId: 'mg_secret_fuzhou' },
-          ],
         },
       },
     }));
@@ -221,7 +218,34 @@ describe('App', () => {
 
     const playerLeft = el.querySelectorAll('.pile-area')[1].querySelector('.pile-stacks-left');
     expect(playerLeft?.querySelector('.pile-stack--cooldown')).toBeTruthy();
-    expect(playerLeft?.querySelector('.pile-stack--chant')).toBeTruthy();
+  });
+
+  it('沒有詠唱區：主要階段詠唱的卡直接顯示在中央戰鬥區（招式區）', async () => {
+    const fixture = TestBed.createComponent(App);
+    const app = fixture.componentInstance;
+    await fixture.whenStable();
+
+    const el = fixture.nativeElement as HTMLElement;
+    const zone = el.querySelector('.drop-zone--combat') as HTMLElement;
+    expect(zone.textContent).toContain('戰 鬥 區');
+
+    (app.store as any)._state.update((s: any) => ({
+      ...s,
+      phase: 'main',
+      activeSeat: 'player',
+      combat: null,
+      sides: {
+        ...s.sides,
+        player: { ...s.sides.player, techniqueZone: [{ iid: 889, defId: 'mg_tech_yunshi' }] },
+      },
+    }));
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    expect(el.querySelector('.pile-stack--chant')).toBeNull();
+    expect(zone.textContent).not.toContain('戰 鬥 區');
+    expect(zone.textContent).toContain('隕石天降');
+    expect(zone.textContent).toContain('詠唱');
   });
 
   it('事件區顯示事件的持有者與指示物；可發動的我方裝備會亮框，點擊就發動並橫置', async () => {

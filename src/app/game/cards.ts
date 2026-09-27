@@ -1003,9 +1003,9 @@ const MAGE_CARDS: CardDef[] = [
     {
       damage: 2,
       guard: 1,
-      chant: { cost: 1, damage: 2, text: '詠唱(1)：戰鬥時額外造成 2 點法術打擊。' },
+      chant: { cost: 1, damage: 2, text: '詠唱(1)：對手受到 2 點法術傷害（不觸發防禦）。' },
     },
-    '【詠唱(1)】可在主要階段詠唱打出；戰鬥時額外造成 2 點打擊。',
+    '【詠唱(1)】對手受到 2 點法術傷害（不觸發防禦）。',
   ),
   technique(
     'mg_tech_bingzhi',
@@ -1014,9 +1014,9 @@ const MAGE_CARDS: CardDef[] = [
     {
       damage: 1,
       guard: 2,
-      chant: { cost: 1, damage: 1, guardReduction: 1, text: '詠唱(1)：戰鬥時削弱對手 1 點防禦，追加 1 點傷害。' },
+      chant: { cost: 1, damage: 1, guardReduction: 1, text: '詠唱(1)：對手受到 1 點傷害（不觸發防禦）；此卡在招式區時，對手防禦值 -1。' },
     },
-    '【詠唱(1)】削弱對手 1 點防禦並追加 1 點傷害。',
+    '【詠唱(1)】對手受到 1 點傷害（不觸發防禦）；此卡在招式區時，對手防禦值 -1。',
   ),
   technique(
     'mg_tech_shandian',
@@ -1026,9 +1026,9 @@ const MAGE_CARDS: CardDef[] = [
       damage: 3,
       guard: 1,
       comboBonus: { sequence: ['trick', 'secret'], damage: 2 },
-      chant: { cost: 1, damage: 3, text: '詠唱(1)：戰鬥時額外造成 3 點雷電打擊。' },
+      chant: { cost: 1, damage: 3, text: '詠唱(1)：對手受到 3 點雷電傷害（不觸發防禦）。' },
     },
-    '【詠唱(1)】【連招：特技→密技】此擊傷害 +2。',
+    '【詠唱(1)】對手受到 3 點雷電傷害（不觸發防禦）。【連招：特技→密技】此擊傷害 +2。',
   ),
   technique(
     'mg_tech_huoqiu',
@@ -1037,9 +1037,9 @@ const MAGE_CARDS: CardDef[] = [
     {
       damage: 4,
       guard: 1,
-      chant: { cost: 2, damage: 4, text: '詠唱(2)：戰鬥時額外造成 4 點火焰打擊。' },
+      chant: { cost: 2, damage: 4, text: '詠唱(2)：對手受到 4 點火焰傷害（不觸發防禦）。' },
     },
-    '【詠唱(2)】造成 4 點高額傷害。',
+    '【詠唱(2)】對手受到 4 點火焰傷害（不觸發防禦）。',
   ),
   technique(
     'mg_tech_yunshi',
@@ -1049,9 +1049,9 @@ const MAGE_CARDS: CardDef[] = [
       damage: 5,
       guard: 2,
       cost: 1,
-      chant: { cost: 2, damage: 5, text: '詠唱(2)：戰鬥時額外造成 5 點毀滅隕石。' },
+      chant: { cost: 2, damage: 5, text: '詠唱(2)：對手受到 5 點毀滅隕石傷害（不觸發防禦）。' },
     },
-    '【奧義】【詠唱(2)】造成 5 點毀滅隕石打擊。',
+    '【奧義】【詠唱(2)】對手受到 5 點毀滅隕石傷害（不觸發防禦）。',
   ),
   technique(
     'mg_tech_jiguang',
@@ -1202,12 +1202,12 @@ const MAGE_CARDS: CardDef[] = [
     '【飾品・等級2】傷害計算時我方傷害 +X：本回合打出的招式名稱包含「火」「冰」「電」達 2 種時 X = 2，3 種時 X = 5。',
   ),
 
-  // 招式：元素系（詠唱引爆傷害 = 基礎傷害 + 詠唱加成）
+  // 招式：元素系（詠唱後放到招式區，戰鬥時傷害 = 基礎傷害 + 詠唱加成）
   technique(
     'mg_el_huoqiu',
     '火球',
     'trick',
-    { damage: 2, guard: 2, chant: { cost: 1, damage: 4, bonus: 2, text: '詠唱(1)：此卡傷害 +2。' } },
+    { damage: 2, guard: 2, chant: { cost: 1, bonus: 2, text: '詠唱(1)：此卡傷害 +2。' } },
     '【詠唱(1)】此卡傷害 +2。',
   ),
   technique(
@@ -1219,8 +1219,6 @@ const MAGE_CARDS: CardDef[] = [
       guard: 3,
       chant: {
         cost: 1,
-        damage: 1,
-        bonus: 0,
         effects: [{ type: 'addEventCounters', n: 1 }],
         text: '詠唱(1)：在事件卡上放置 1 個持續時間指示物。',
       },
@@ -1235,7 +1233,7 @@ const MAGE_CARDS: CardDef[] = [
       damage: 1,
       guard: 1,
       effects: [{ type: 'discardToSalvage', filter: { kind: 'technique', nameAny: ['電'] } }],
-      chant: { cost: 1, damage: 2, bonus: 1, text: '詠唱(1)：此卡傷害 +1。' },
+      chant: { cost: 1, bonus: 1, text: '詠唱(1)：此卡傷害 +1。' },
     },
     '可以捨棄 1 張手牌，若這麼做則從棄牌區選擇 1 張名稱包含「電」的招式卡加入手牌。【詠唱(1)】此卡傷害 +1。',
   ),
@@ -1248,8 +1246,6 @@ const MAGE_CARDS: CardDef[] = [
       guard: 2,
       chant: {
         cost: 2,
-        damage: 1,
-        bonus: 0,
         effects: [
           {
             type: 'modify',
@@ -1274,8 +1270,6 @@ const MAGE_CARDS: CardDef[] = [
       guard: 3,
       chant: {
         cost: 2,
-        damage: 1,
-        bonus: 0,
         conditionalBonus: { when: { type: 'eventExpiredThisTurn' }, damage: 5 },
         text: '詠唱(2)：本回合若有事件因持續時間到而捨棄，此卡傷害 +5。',
       },
@@ -1295,8 +1289,6 @@ const MAGE_CARDS: CardDef[] = [
       ],
       chant: {
         cost: 2,
-        damage: 1,
-        bonus: 0,
         effects: [{ type: 'opponentDiscardTechOrMill', mill: 4 }],
         text: '詠唱(2)：對手選擇捨棄自己手中 1 張招式，或捨棄牌組頂 4 張。',
       },
@@ -1307,7 +1299,7 @@ const MAGE_CARDS: CardDef[] = [
     'mg_el_huoyu',
     '火雨',
     'ultimate',
-    { damage: 3, guard: 2, cost: 1, chant: { cost: 1, damage: 5, bonus: 2, text: '詠唱(1)：此卡傷害 +2。' } },
+    { damage: 3, guard: 2, cost: 1, chant: { cost: 1, bonus: 2, text: '詠唱(1)：此卡傷害 +2。' } },
     '【詠唱(1)】此卡傷害 +2。',
   ),
   technique(
@@ -1320,8 +1312,6 @@ const MAGE_CARDS: CardDef[] = [
       cost: 1,
       chant: {
         cost: 2,
-        damage: 2,
-        bonus: 0,
         effects: [{ type: 'addEventCounters', n: 2 }],
         text: '詠唱(2)：在事件卡上放置 2 個持續時間指示物。',
       },
@@ -1337,7 +1327,7 @@ const MAGE_CARDS: CardDef[] = [
       guard: 1,
       cost: 1,
       effects: [{ type: 'discardToSalvage', filter: { kind: 'technique', nameAny: ['電'] } }],
-      chant: { cost: 2, damage: 4, bonus: 2, text: '詠唱(2)：此卡傷害 +2。' },
+      chant: { cost: 2, bonus: 2, text: '詠唱(2)：此卡傷害 +2。' },
     },
     '可以捨棄 1 張手牌，若這麼做則從棄牌區選擇 1 張名稱包含「電」的招式卡加入手牌。【詠唱(2)】此卡傷害 +2。',
   ),

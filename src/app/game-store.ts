@@ -23,7 +23,7 @@ import { P2PService } from './p2p/p2p-service';
 import type { GameAction, P2PMessage } from './p2p/p2p-types';
 
 /** 可以點開查看內容的堆疊區 */
-export type PileKind = 'deck' | 'anger' | 'discard' | 'life' | 'level' | 'questDeck' | 'cooldown' | 'chant';
+export type PileKind = 'deck' | 'anger' | 'discard' | 'life' | 'level' | 'questDeck' | 'cooldown';
 
 export interface PileView {
   seat: Seat;
@@ -616,9 +616,12 @@ export class GameStore {
     for (const e of entries) {
       const seat = e.seat ?? 'player';
 
+      const chantHit = e.text.startsWith('【詠唱傷害】') ? /受到 (\d+) 點傷害/.exec(e.text) : null;
+
       if (e.text.includes('【任務完成】')) this.addPopup(seat, '任務完成！等級提升', 'quest');
       else if (e.text.includes('【任務失敗】')) this.addPopup(seat, '任務失敗', 'fail');
       else if (e.text.includes('【重構】')) this.addPopup(seat, '重構', 'rebuild');
+      else if (chantHit && chantHit[1] !== '0') this.addPopup(seat, `−${chantHit[1]}`, 'damage');
     }
   }
 
@@ -711,7 +714,6 @@ export class GameStore {
       ? {
           ...s.combat,
           plays: [...s.combat.plays],
-          chantPlays: [...s.combat.chantPlays],
           defenseCards: [...s.combat.defenseCards],
         }
       : null;

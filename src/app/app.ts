@@ -18,6 +18,7 @@ import { isDragGesture, isInsideDropZone } from './drag-utils';
 import { DEFAULT_CARD_WIDTH, computeHandSpacing } from './hand-layout';
 import { card } from './game/cards';
 import { CHARACTERS, CHARACTER_IDS, type CharacterDef } from './game/characters';
+import { chantedPlayDamage } from './game/effects';
 import { GameStore, SPEED_OPTIONS, type FxPopup, type NpcSpeed, type PileKind } from './game-store';
 import { PHASE_LABEL, RULES, type CardInstance, type CharacterId, type Phase, type Seat } from './game/types';
 import { RULE_SECTIONS } from './rules';
@@ -299,6 +300,14 @@ export class App {
     const ev = this.eventZone();
     return ev ? card(ev.card.defId).duration : undefined;
   });
+
+  /** 戰鬥開始前的招式區：本回合已詠唱、等待戰鬥的卡，附上目前預估的傷害 */
+  readonly chantedInZone = computed(() => {
+    const s = this.store.state();
+    if (s.combat) return [];
+    const seat = s.activeSeat;
+    return s.sides[seat].techniqueZone.map((c) => ({ card: c, damage: chantedPlayDamage(s, seat, c) }));
+  });
   readonly log = this.store.log;
   readonly player = this.store.player;
   readonly npc = this.store.npc;
@@ -463,18 +472,11 @@ export class App {
     if (!cb) return [];
 
     const items: { name: string; tag?: string; text: string }[] = [];
-    for (const cp of cb.chantPlays) {
-      const def = card(cp.card.defId);
-      items.push({
-        name: def.name,
-        tag: '詠唱',
-        text: def.chant?.text ?? def.text,
-      });
-    }
     for (const p of cb.plays) {
       const def = card(p.card.defId);
-      const tag =
-        p.tier === 'trick'
+      const tag = p.chanted
+        ? '詠唱'
+        : p.tier === 'trick'
           ? '特技'
           : p.tier === 'secret'
             ? '密技'
@@ -531,7 +533,6 @@ export class App {
     if (s.combat) {
       const combatPool: CardInstance[] = [
         ...s.combat.plays.map((p) => p.card),
-        ...s.combat.chantPlays.map((cp) => cp.card),
         ...s.combat.defenseCards,
       ];
       const hit = combatPool.find((c) => c.iid === iid);
@@ -552,7 +553,7 @@ export class App {
         ...side.anger,
         ...side.discard,
         ...side.cooldownZone.map((cd) => cd.card),
-        ...side.chantedCards,
+        ...side.techniqueZone,
         ...(side.currentQuest ? [side.currentQuest] : []),
       ];
       const hit = pool.find((c) => c.iid === iid);
@@ -645,17 +646,19 @@ export class App {
 
   /**
    * 這張卡應該放到哪一區。
-   * 招式卡走戰鬥區、其他卡走行動區；階段不對時回傳 null，拖了也不會有反應。
+   * 招式卡走戰鬥區（主要階段只有能詠唱的招式可以拖進去）、其他卡走行動區；
+   * 階段不對時回傳 null，拖了也不會有反應。
    */
   private zoneFor(iid: number): Exclude<DropZone, null> | null {
     const inst = this.findCard(iid);
     if (!inst) return null;
 
-    const isTechnique = card(inst.defId).kind === 'technique';
+    const def = card(inst.defId);
+    const isTechnique = def.kind === 'technique';
     const phase = this.store.phase();
 
     if (phase === 'combat') return isTechnique ? 'combat' : null;
-    if (phase === 'main') return isTechnique ? null : 'action';
+    if (phase === 'main') return isTechnique ? (def.chant ? 'combat' : null) : 'action';
 
     return null;
   }
@@ -705,8 +708,6 @@ export class App {
         return side.questDeck;
       case 'cooldown':
         return side.cooldownZone.map((cd) => cd.card);
-      case 'chant':
-        return side.chantedCards;
       default:
         return [];
     }
@@ -725,7 +726,6 @@ export class App {
       level: '已達成任務',
       questDeck: '任務牌組',
       cooldown: '冷卻區',
-      chant: '詠唱區',
     };
     return `${who}${names[view.kind]}（${this.pileCards().length} 張）`;
   });

@@ -192,17 +192,14 @@ function ownedCards(g: GameState, seat: Seat): CardInstance[] {
     ...side.questDeck,
     ...(side.currentQuest ? [side.currentQuest] : []),
     ...side.cooldownZone.map((cd) => cd.card),
-    ...side.chantedCards,
+    ...side.techniqueZone,
   ];
   if (g.eventZone?.owner === seat) out.push(g.eventZone.card);
   for (const p of [g.pending, ...g.pendingQueue]) {
     if (p?.kind === 'search' && p.seat === seat) out.push(...p.candidates);
   }
   if (g.combat) {
-    if (g.combat.attacker === seat) {
-      out.push(...g.combat.plays.map((p) => p.card));
-      out.push(...g.combat.chantPlays.map((p) => p.card).filter((c) => !side.chantedCards.some((x) => x.iid === c.iid)));
-    }
+    if (g.combat.attacker === seat) out.push(...g.combat.plays.map((p) => p.card));
     if (g.combat.defender === seat) out.push(...g.combat.defenseCards);
   }
   return out;

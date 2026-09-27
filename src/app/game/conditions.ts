@@ -74,7 +74,7 @@ export function checkCondition(state: GameState, seat: Seat, cond: Condition): b
       return side.cooldownZone.length >= cond.n;
 
     case 'hasChantedThisTurn':
-      return side.stats.chants > 0 || side.chantedCards.length > 0;
+      return side.stats.chants > 0 || side.techniqueZone.length > 0;
 
     case 'ownEventInZone': {
       const ev = state.eventZone;

@@ -76,7 +76,7 @@ import { CARD_KIND_LABEL, EQUIP_LABEL, TECHNIQUE_LABEL } from './game/types';
 
           @if (def()!.chant; as ch) {
             <div class="mt-2 rounded border border-sky-600/40 bg-sky-950/30 px-2 py-1 text-[10px] text-sky-200">
-              詠唱特性：主要階段橫置 {{ ch.cost }} 生命打出；戰鬥階段額外出招。{{ ch.text }}
+              詠唱特性：主要階段支付 {{ ch.cost }} 費詠唱，結算詠唱效果後此卡放到招式區，戰鬥時作為額外出招（不佔階級）。{{ ch.text }}
             </div>
           }
 

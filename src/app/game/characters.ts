@@ -35,7 +35,7 @@ export const CHARACTERS: Record<CharacterId, CharacterDef> = {
     badge: '魔能詠唱',
     colorName: 'sky',
     summary: '引導魔能，構築詠唱。追求極致的傷害增幅與元素轟炸。',
-    featureDesc: '主要階段可進行一次「詠唱」出招，戰鬥時作為額外出招引爆；擁有強大的直接增傷手段。',
+    featureDesc: '主要階段可進行一次「詠唱」：立即發動詠唱效果，招式直接放到招式區，戰鬥時作為額外出招；擁有強大的直接傷害手段。',
     primaryPlaystyle: '詠唱出招 · 傷害增幅 · 元素轟炸',
     bgGradient: 'from-sky-950/80 via-indigo-900/40 to-slate-950',
   },
