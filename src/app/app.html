@@ -8,30 +8,34 @@
 
     <span
       class="tag cursor-pointer"
-      [class]="playerCharDef().colorName === 'rose' ? 'tag--rose' : playerCharDef().colorName === 'sky' ? 'tag--sky' : 'tag--emerald'"
+      [class]="myCharDef().colorName === 'rose' ? 'tag--rose' : myCharDef().colorName === 'sky' ? 'tag--sky' : 'tag--emerald'"
       title="點擊切換英雄"
       (click)="openHeroSelect()"
     >
-      {{ playerCharDef().title }}
+      {{ myCharDef().title }}
     </span>
     <span class="text-[10px] text-slate-500 font-bold">VS</span>
     <span
       class="tag cursor-pointer"
-      [class]="npcCharDef().colorName === 'rose' ? 'tag--rose' : npcCharDef().colorName === 'sky' ? 'tag--sky' : 'tag--emerald'"
+      [class]="opponentCharDef().colorName === 'rose' ? 'tag--rose' : opponentCharDef().colorName === 'sky' ? 'tag--sky' : 'tag--emerald'"
       title="點擊切換英雄"
       (click)="openHeroSelect()"
     >
-      {{ npcCharDef().title }}
+      {{ opponentCharDef().title }}
     </span>
 
-    @if (activeSeat() === 'player') {
+    @if (store.isMyTurn()) {
       <span class="tag tag--emerald">你的回合</span>
     } @else {
       <span class="tag tag--rose">對手回合</span>
     }
 
-    @if (npcThinking()) {
-      <span class="animate-pulse text-[11px] text-slate-400">對手思考中…</span>
+    @if (gameMode() === 'solo' && npcThinking()) {
+      <span class="animate-pulse text-[11px] text-slate-400">電腦思考中…</span>
+    } @else if (gameMode() === 'p2p') {
+      <span class="tag tag--slate text-[10px] font-mono">
+        @if (isHost()) { 👑 房主 } @else { 🎮 客人 } · {{ p2p.roomCode() }}
+      </span>
     }
 
     <span class="ml-auto hidden font-mono text-[10px] text-slate-600 sm:inline">seed {{ store.state().seed }}</span>
@@ -91,7 +95,7 @@
     <section class="scroll-y flex min-h-0 flex-1 flex-col gap-1 px-2">
       <!-- 對手手牌 -->
       <div class="flex min-h-[30px] shrink-0 items-start justify-center">
-        @for (c of npc().hand; track c.iid) {
+        @for (c of opponentSide().hand; track c.iid) {
           <div
             class="h-8 w-6 shrink-0 rounded border border-sky-500/40 bg-gradient-to-b from-sky-900 to-slate-950 shadow"
             [style.marginLeft]="$index === 0 ? '0' : '-12px'"
@@ -102,28 +106,28 @@
       <!-- 對手場面 -->
       <div
         class="side-npc side-panel shrink-0 border border-rose-900/50 bg-rose-950/15 px-2 py-1.5"
-        [class.side-active]="activeSeat() === 'npc' && !winner()"
+        [class.side-active]="activeSeat() === store.opponentSeat() && !winner()"
       >
         <div class="flex flex-wrap items-center gap-x-3 gap-y-1">
           <div class="flex items-baseline gap-1.5">
             <span class="text-[11px] font-bold text-rose-300">對手</span>
             <span
               class="tag tag--sm"
-              [class]="npcCharDef().colorName === 'rose' ? 'tag--rose' : npcCharDef().colorName === 'sky' ? 'tag--sky' : 'tag--emerald'"
+              [class]="opponentCharDef().colorName === 'rose' ? 'tag--rose' : opponentCharDef().colorName === 'sky' ? 'tag--sky' : 'tag--emerald'"
             >
-              {{ npcCharDef().title }}
+              {{ opponentCharDef().title }}
             </span>
-            <span class="text-[10px] text-amber-300/80">Lv{{ npc().level }}</span>
+            <span class="text-[10px] text-amber-300/80">Lv{{ opponentSide().level }}</span>
           </div>
 
-          @if (npc().chantedCards.length > 0) {
+          @if (opponentSide().chantedCards.length > 0) {
             <button
               type="button"
               class="btn btn--sky btn--sm !px-1.5 !py-0.5 text-[10px]"
               title="查看對手已詠唱卡片"
-              (click)="openPile('npc', 'chant')"
+              (click)="openPile(store.opponentSeat(), 'chant')"
             >
-              已詠唱({{ npc().chantedCards.length }})
+              已詠唱({{ opponentSide().chantedCards.length }})
             </button>
           }
 
@@ -133,13 +137,13 @@
             <button
               type="button"
               class="shrink-0 cursor-pointer text-[12px] font-bold tabular-nums underline decoration-dotted underline-offset-2"
-              [class]="npc().life.length <= 1 ? 'text-red-400' : 'text-rose-300'"
-              [title]="'生命區剩 ' + npc().life.length + ' 張卡，歸零即敗北。點擊查看內容'"
-              (click)="openPile('npc', 'life')"
+              [class]="opponentSide().life.length <= 1 ? 'text-red-400' : 'text-rose-300'"
+              [title]="'生命區剩 ' + opponentSide().life.length + ' 張卡，歸零即敗北。點擊查看內容'"
+              (click)="openPile(store.opponentSeat(), 'life')"
             >
-              {{ npc().life.length }}
+              {{ opponentSide().life.length }}
             </button>
-            @for (l of npc().life; track l.card.iid) {
+            @for (l of opponentSide().life; track l.card.iid) {
               <button
                 type="button"
                 class="life-card flex w-11 cursor-help flex-col items-center gap-0.5 rounded border border-rose-500/50 bg-rose-950/40 px-0.5 py-0.5 transition hover:border-rose-300"
@@ -154,14 +158,14 @@
                 </span>
               </button>
             }
-            @if (npc().life.length === 0) {
+            @if (opponentSide().life.length === 0) {
               <span class="text-[10px] font-bold text-red-400">已空</span>
             }
           </div>
 
           <div class="flex items-center gap-1">
             <span class="shrink-0 text-[9px] tracking-wider text-slate-500">裝備</span>
-            @for (e of npc().equipment; track e.iid) {
+            @for (e of opponentSide().equipment; track e.iid) {
               <button
                 type="button"
                 class="flex w-11 cursor-help flex-col items-center gap-0.5 rounded border border-sky-600/50 bg-sky-950/40 px-0.5 py-0.5 transition hover:border-sky-300"
@@ -176,7 +180,7 @@
             }
           </div>
 
-          @if (npc().currentQuest; as q) {
+          @if (opponentSide().currentQuest; as q) {
             <button
               type="button"
               class="ml-auto flex cursor-help items-center gap-1.5 rounded-md border border-amber-600/50 bg-amber-950/30 px-1.5 py-0.5 transition hover:border-amber-300"
@@ -195,17 +199,17 @@
         <!-- 牌組：內容是隱藏資訊，不提供檢視 -->
         <div
           class="pile-stack pile-stack--deck"
-          [class.pile-stack--empty]="npc().deck.length === 0"
+          [class.pile-stack--empty]="opponentSide().deck.length === 0"
           [title]="
-            npc().deck.length <= 5
+            opponentSide().deck.length <= 5
               ? '牌組快抽完了，抽完會觸發重構並扣掉一張生命卡'
-              : '牌組剩 ' + npc().deck.length + ' 張（內容為隱藏資訊）'
+              : '牌組剩 ' + opponentSide().deck.length + ' 張（內容為隱藏資訊）'
           "
         >
           <span
             class="text-sm font-bold tabular-nums"
-            [class]="npc().deck.length <= 5 ? 'text-amber-300' : 'text-sky-300'"
-            >{{ npc().deck.length }}</span
+            [class]="opponentSide().deck.length <= 5 ? 'text-amber-300' : 'text-sky-300'"
+            >{{ opponentSide().deck.length }}</span
           >
           <span class="text-[9px] text-slate-500">牌組</span>
         </div>
@@ -213,44 +217,44 @@
         <button
           type="button"
           class="pile-stack pile-stack--anger pile-stack--clickable"
-          [class.pile-stack--empty]="npc().anger.length === 0"
+          [class.pile-stack--empty]="opponentSide().anger.length === 0"
           title="點擊查看怒氣區內容"
-          (click)="openPile('npc', 'anger')"
+          (click)="openPile(store.opponentSeat(), 'anger')"
         >
-          <span class="text-sm font-bold tabular-nums text-rose-300">{{ npc().anger.length }}</span>
+          <span class="text-sm font-bold tabular-nums text-rose-300">{{ opponentSide().anger.length }}</span>
           <span class="text-[9px] text-slate-500">怒氣</span>
         </button>
 
         <button
           type="button"
           class="pile-stack pile-stack--discard pile-stack--clickable"
-          [class.pile-stack--empty]="npc().discard.length === 0"
+          [class.pile-stack--empty]="opponentSide().discard.length === 0"
           title="點擊查看棄牌區內容"
-          (click)="openPile('npc', 'discard')"
+          (click)="openPile(store.opponentSeat(), 'discard')"
         >
-          <span class="text-sm font-bold tabular-nums text-slate-300">{{ npc().discard.length }}</span>
+          <span class="text-sm font-bold tabular-nums text-slate-300">{{ opponentSide().discard.length }}</span>
           <span class="text-[9px] text-slate-500">棄牌</span>
         </button>
 
         <button
           type="button"
           class="pile-stack pile-stack--cooldown pile-stack--clickable"
-          [class.pile-stack--empty]="npc().cooldownZone.length === 0"
+          [class.pile-stack--empty]="opponentSide().cooldownZone.length === 0"
           title="點擊查看對手冷卻區內容"
-          (click)="openPile('npc', 'cooldown')"
+          (click)="openPile(store.opponentSeat(), 'cooldown')"
         >
-          <span class="text-sm font-bold tabular-nums text-emerald-300">{{ npc().cooldownZone.length }}</span>
+          <span class="text-sm font-bold tabular-nums text-emerald-300">{{ opponentSide().cooldownZone.length }}</span>
           <span class="text-[9px] text-slate-500">冷卻</span>
         </button>
 
         <button
           type="button"
           class="pile-stack pile-stack--level pile-stack--clickable"
-          [class.pile-stack--empty]="npc().levelZone.length === 0"
+          [class.pile-stack--empty]="opponentSide().levelZone.length === 0"
           title="點擊查看對手已達成的任務"
-          (click)="openPile('npc', 'level')"
+          (click)="openPile(store.opponentSeat(), 'level')"
         >
-          <span class="text-sm font-bold tabular-nums text-amber-300">Lv{{ npc().level }}</span>
+          <span class="text-sm font-bold tabular-nums text-amber-300">Lv{{ opponentSide().level }}</span>
           <span class="text-[9px] text-slate-500">達成</span>
         </button>
       </div>
@@ -345,17 +349,17 @@
       <div class="flex shrink-0 items-center justify-center gap-2 sm:gap-3">
         <div
           class="pile-stack pile-stack--deck"
-          [class.pile-stack--empty]="player().deck.length === 0"
+          [class.pile-stack--empty]="mySide().deck.length === 0"
           [title]="
-            player().deck.length <= 5
+            mySide().deck.length <= 5
               ? '牌組快抽完了，抽完會觸發重構並扣掉一張生命卡'
-              : '牌組剩 ' + player().deck.length + ' 張（內容為隱藏資訊）'
+              : '牌組剩 ' + mySide().deck.length + ' 張（內容為隱藏資訊）'
           "
         >
           <span
             class="text-sm font-bold tabular-nums"
-            [class]="player().deck.length <= 5 ? 'text-amber-300' : 'text-sky-300'"
-            >{{ player().deck.length }}</span
+            [class]="mySide().deck.length <= 5 ? 'text-amber-300' : 'text-sky-300'"
+            >{{ mySide().deck.length }}</span
           >
           <span class="text-[9px] text-slate-500">牌組</span>
         </div>
@@ -363,44 +367,44 @@
         <button
           type="button"
           class="pile-stack pile-stack--anger pile-stack--clickable"
-          [class.pile-stack--empty]="player().anger.length === 0"
+          [class.pile-stack--empty]="mySide().anger.length === 0"
           title="點擊查看怒氣區內容"
-          (click)="openPile('player', 'anger')"
+          (click)="openPile(store.mySeat(), 'anger')"
         >
-          <span class="text-sm font-bold tabular-nums text-rose-300">{{ player().anger.length }}</span>
+          <span class="text-sm font-bold tabular-nums text-rose-300">{{ mySide().anger.length }}</span>
           <span class="text-[9px] text-slate-500">怒氣</span>
         </button>
 
         <button
           type="button"
           class="pile-stack pile-stack--discard pile-stack--clickable"
-          [class.pile-stack--empty]="player().discard.length === 0"
+          [class.pile-stack--empty]="mySide().discard.length === 0"
           title="點擊查看棄牌區內容"
-          (click)="openPile('player', 'discard')"
+          (click)="openPile(store.mySeat(), 'discard')"
         >
-          <span class="text-sm font-bold tabular-nums text-slate-300">{{ player().discard.length }}</span>
+          <span class="text-sm font-bold tabular-nums text-slate-300">{{ mySide().discard.length }}</span>
           <span class="text-[9px] text-slate-500">棄牌</span>
         </button>
 
         <button
           type="button"
           class="pile-stack pile-stack--cooldown pile-stack--clickable"
-          [class.pile-stack--empty]="player().cooldownZone.length === 0"
+          [class.pile-stack--empty]="mySide().cooldownZone.length === 0"
           title="點擊查看你的冷卻區內容"
-          (click)="openPile('player', 'cooldown')"
+          (click)="openPile(store.mySeat(), 'cooldown')"
         >
-          <span class="text-sm font-bold tabular-nums text-emerald-300">{{ player().cooldownZone.length }}</span>
+          <span class="text-sm font-bold tabular-nums text-emerald-300">{{ mySide().cooldownZone.length }}</span>
           <span class="text-[9px] text-slate-500">冷卻</span>
         </button>
 
         <button
           type="button"
           class="pile-stack pile-stack--level pile-stack--clickable"
-          [class.pile-stack--empty]="player().levelZone.length === 0"
+          [class.pile-stack--empty]="mySide().levelZone.length === 0"
           title="點擊查看你已達成的任務"
-          (click)="openPile('player', 'level')"
+          (click)="openPile(store.mySeat(), 'level')"
         >
-          <span class="text-sm font-bold tabular-nums text-amber-300">Lv{{ player().level }}</span>
+          <span class="text-sm font-bold tabular-nums text-amber-300">Lv{{ mySide().level }}</span>
           <span class="text-[9px] text-slate-500">達成</span>
         </button>
       </div>
@@ -409,7 +413,7 @@
       <div
         #actionZone
         class="side-player side-panel drop-zone--action shrink-0 rounded-lg border border-emerald-900/50 bg-emerald-950/15 px-2 py-1.5 transition-colors"
-        [class.side-active]="activeSeat() === 'player' && !winner()"
+        [class.side-active]="activeSeat() === store.mySeat() && !winner()"
         [class.drop-zone--active]="dropZone() === 'action'"
       >
         <div class="flex flex-wrap items-center gap-x-3 gap-y-1">
@@ -417,24 +421,24 @@
             <span class="text-[11px] font-bold text-emerald-300">你</span>
             <span
               class="tag tag--sm"
-              [class]="playerCharDef().colorName === 'rose' ? 'tag--rose' : playerCharDef().colorName === 'sky' ? 'tag--sky' : 'tag--emerald'"
+              [class]="myCharDef().colorName === 'rose' ? 'tag--rose' : myCharDef().colorName === 'sky' ? 'tag--sky' : 'tag--emerald'"
             >
-              {{ playerCharDef().title }}
+              {{ myCharDef().title }}
             </span>
-            <span class="text-[10px] text-amber-300/80">Lv{{ player().level }}</span>
+            <span class="text-[10px] text-amber-300/80">Lv{{ mySide().level }}</span>
             <span class="rounded bg-emerald-900/50 px-1.5 py-px text-[9px] font-bold tracking-wider text-emerald-300/80"
               >行動區</span
             >
           </div>
 
-          @if (player().chantedCards.length > 0) {
+          @if (mySide().chantedCards.length > 0) {
             <button
               type="button"
               class="btn btn--sky btn--sm !px-1.5 !py-0.5 text-[10px]"
               title="查看你已詠唱卡片"
-              (click)="openPile('player', 'chant')"
+              (click)="openPile(store.mySeat(), 'chant')"
             >
-              已詠唱({{ player().chantedCards.length }})
+              已詠唱({{ mySide().chantedCards.length }})
             </button>
           }
 
@@ -444,13 +448,13 @@
             <button
               type="button"
               class="shrink-0 cursor-pointer text-[12px] font-bold tabular-nums underline decoration-dotted underline-offset-2"
-              [class]="player().life.length <= 1 ? 'text-red-400' : 'text-emerald-300'"
-              [title]="'生命區剩 ' + player().life.length + ' 張卡，歸零即敗北。點擊查看內容'"
-              (click)="openPile('player', 'life')"
+              [class]="mySide().life.length <= 1 ? 'text-red-400' : 'text-emerald-300'"
+              [title]="'生命區剩 ' + mySide().life.length + ' 張卡，歸零即敗北。點擊查看內容'"
+              (click)="openPile(store.mySeat(), 'life')"
             >
-              {{ player().life.length }}
+              {{ mySide().life.length }}
             </button>
-            @for (l of player().life; track l.card.iid) {
+            @for (l of mySide().life; track l.card.iid) {
               <button
                 type="button"
                 class="life-card flex w-11 cursor-help flex-col items-center gap-0.5 rounded border border-emerald-500/50 bg-emerald-950/40 px-0.5 py-0.5 transition hover:border-emerald-300"
@@ -465,14 +469,14 @@
                 </span>
               </button>
             }
-            @if (player().life.length === 0) {
+            @if (mySide().life.length === 0) {
               <span class="text-[10px] font-bold text-red-400">已空</span>
             }
           </div>
 
           <div class="flex items-center gap-1">
             <span class="shrink-0 text-[9px] tracking-wider text-slate-500">裝備</span>
-            @for (e of player().equipment; track e.iid) {
+            @for (e of mySide().equipment; track e.iid) {
               <button
                 type="button"
                 class="flex w-11 cursor-help flex-col items-center gap-0.5 rounded border border-sky-600/50 bg-sky-950/40 px-0.5 py-0.5 transition hover:border-sky-300"
@@ -491,7 +495,7 @@
             <span class="tag tag--violet">{{ b.source }}</span>
           }
 
-          @if (player().currentQuest; as q) {
+          @if (mySide().currentQuest; as q) {
             <button
               type="button"
               class="ml-auto flex cursor-help items-center gap-1.5 rounded-md border border-amber-600/50 bg-amber-950/30 px-1.5 py-0.5 transition hover:border-amber-300"
@@ -578,7 +582,7 @@
             }
 
             @case ('ended') {
-              <span class="text-lg font-black" [class]="winner() === 'player' ? 'text-amber-300' : 'text-rose-400'">
+              <span class="text-lg font-black" [class]="winner() === store.mySeat() ? 'text-amber-300' : 'text-rose-400'">
                 {{ resultText() }}
               </span>
               <button type="button" class="btn btn--amber btn--lg" (click)="openHeroSelect()">再來一局</button>
@@ -675,9 +679,9 @@
         <p class="anim-log flex items-baseline gap-1.5 text-[11px] leading-relaxed" [class]="logToneClass(entry.tone)">
           <span
             class="shrink-0 px-1 py-px rounded font-mono text-[9px] font-bold"
-            [class]="entry.seat === 'player' ? 'bg-emerald-950/80 text-emerald-400 ring-1 ring-emerald-500/30' : entry.seat === 'npc' ? 'bg-rose-950/80 text-rose-400 ring-1 ring-rose-500/30' : 'bg-slate-900 text-slate-400 ring-1 ring-slate-700/40'"
+            [class]="entry.seat === store.mySeat() ? 'bg-emerald-950/80 text-emerald-400 ring-1 ring-emerald-500/30' : entry.seat ? 'bg-rose-950/80 text-rose-400 ring-1 ring-rose-500/30' : 'bg-slate-900 text-slate-400 ring-1 ring-slate-700/40'"
           >
-            T{{ entry.turn }} · {{ entry.seat === 'player' ? '你' : entry.seat === 'npc' ? '對手' : '局' }}
+            T{{ entry.turn }} · {{ entry.seat === store.mySeat() ? '你' : entry.seat ? '對手' : '局' }}
           </span>
           <span class="flex-1">{{ entry.text }}</span>
         </p>
@@ -790,68 +794,84 @@
 
   <!-- ══════════ 通用選擇（開局生命區、檢索） ══════════ -->
   @if (pendingChoice(); as pc) {
-    <div class="fixed inset-0 z-[98] flex items-center justify-center bg-slate-950/92 p-3 backdrop-blur">
-      <div class="popover popover--accent anim-sheet flex max-h-[86vh] w-full max-w-2xl flex-col p-4">
-        <h3 class="text-center text-base font-black tracking-wider text-amber-300">{{ pc.prompt }}</h3>
-        <p class="mt-1 text-center text-[11px] text-slate-400">
-          已選 <b class="text-amber-300">{{ pc.selected.length }}</b> / {{ pc.pick }} 張
-        </p>
+    @if (pc.seat === store.mySeat()) {
+      <div class="fixed inset-0 z-[98] flex items-center justify-center bg-slate-950/92 p-3 backdrop-blur">
+        <div class="popover popover--accent anim-sheet flex max-h-[86vh] w-full max-w-2xl flex-col p-4">
+          <h3 class="text-center text-base font-black tracking-wider text-amber-300">{{ pc.prompt }}</h3>
+          <p class="mt-1 text-center text-[11px] text-slate-400">
+            已選 <b class="text-amber-300">{{ pc.selected.length }}</b> / {{ pc.pick }} 張
+          </p>
 
-        <div class="scroll-y mt-3 flex flex-1 flex-wrap justify-center gap-2">
-          @for (c of choiceCandidates(); track c.iid) {
-            <div class="anim-deal">
-              <app-card-view
-                [inst]="c"
-                [playable]="true"
-                [selected]="choiceSelected().has(c.iid)"
-                [tooltip]="true"
-                size="md"
-                (pick)="chooseCard($event)"
-                (hoverInfo)="onCardHover($event)"
-              />
-            </div>
+          <div class="scroll-y mt-3 flex flex-1 flex-wrap justify-center gap-2">
+            @for (c of choiceCandidates(); track c.iid) {
+              <div class="anim-deal">
+                <app-card-view
+                  [inst]="c"
+                  [playable]="true"
+                  [selected]="choiceSelected().has(c.iid)"
+                  [tooltip]="true"
+                  size="md"
+                  (pick)="chooseCard($event)"
+                  (hoverInfo)="onCardHover($event)"
+                />
+              </div>
+            }
+          </div>
+
+          @if (pc.kind === 'search') {
+            <p class="mt-2 text-center text-[10px] text-slate-500">沒選到的卡會進入棄牌區</p>
+          } @else {
+            <p class="mt-2 text-center text-[10px] text-slate-500">
+              這 3 張就是你的血量，也是支付費用的來源
+            </p>
           }
         </div>
-
-        @if (pc.kind === 'search') {
-          <p class="mt-2 text-center text-[10px] text-slate-500">沒選到的卡會進入棄牌區</p>
-        } @else {
-          <p class="mt-2 text-center text-[10px] text-slate-500">
-            這 3 張就是你的血量，也是支付費用的來源
-          </p>
-        }
       </div>
-    </div>
+    } @else {
+      <div class="fixed top-12 left-1/2 -translate-x-1/2 z-[98] rounded-full border border-amber-500/50 bg-slate-950/90 px-4 py-1.5 shadow-xl backdrop-blur">
+        <span class="animate-pulse text-xs font-bold text-amber-300">
+          ⏳ 對手正在挑選卡牌（{{ pc.selected.length }} / {{ pc.pick }}）…
+        </span>
+      </div>
+    }
   }
 
   <!-- ══════════ 重構（扣血）生命卡選擇 ══════════ -->
   @if (pendingRebuild(); as pr) {
-    <div class="fixed inset-0 z-[98] flex items-center justify-center bg-slate-950/92 p-3 backdrop-blur">
-      <div class="popover popover--accent anim-sheet w-full max-w-lg p-4">
-        <h3 class="text-center text-base font-black tracking-wider text-fuchsia-300">牌組耗盡 · 重構</h3>
-        <p class="mt-1 text-center text-[11px] leading-relaxed text-slate-400">
-          選擇 1 張生命卡加入手牌<br />
-          棄牌區將洗勻成為新牌組
-        </p>
+    @if (pr.seat === store.mySeat()) {
+      <div class="fixed inset-0 z-[98] flex items-center justify-center bg-slate-950/92 p-3 backdrop-blur">
+        <div class="popover popover--accent anim-sheet w-full max-w-lg p-4">
+          <h3 class="text-center text-base font-black tracking-wider text-fuchsia-300">牌組耗盡 · 重構</h3>
+          <p class="mt-1 text-center text-[11px] leading-relaxed text-slate-400">
+            選擇 1 張生命卡加入手牌<br />
+            棄牌區將洗勻成為新牌組
+          </p>
 
-        <div class="mt-3 flex flex-wrap justify-center gap-2">
-          @for (c of rebuildOptions(); track c.iid) {
-            <app-card-view
-              [inst]="c"
-              [playable]="true"
-              [tooltip]="true"
-              size="md"
-              (pick)="chooseLifeCard($event)"
-              (hoverInfo)="onCardHover($event)"
-            />
-          }
+          <div class="mt-3 flex flex-wrap justify-center gap-2">
+            @for (c of rebuildOptions(); track c.iid) {
+              <app-card-view
+                [inst]="c"
+                [playable]="true"
+                [tooltip]="true"
+                size="md"
+                (pick)="chooseLifeCard($event)"
+                (hoverInfo)="onCardHover($event)"
+              />
+            }
+          </div>
+
+          <p class="mt-3 text-center text-[10px] text-slate-500">
+            生命區剩 {{ rebuildOptions().length }} 張 · 歸零即敗北
+          </p>
         </div>
-
-        <p class="mt-3 text-center text-[10px] text-slate-500">
-          生命區剩 {{ rebuildOptions().length }} 張 · 歸零即敗北
-        </p>
       </div>
-    </div>
+    } @else {
+      <div class="fixed top-12 left-1/2 -translate-x-1/2 z-[98] rounded-full border border-fuchsia-500/50 bg-slate-950/90 px-4 py-1.5 shadow-xl backdrop-blur">
+        <span class="animate-pulse text-xs font-bold text-fuchsia-300">
+          💥 對手牌組耗盡，正在重構中…
+        </span>
+      </div>
+    }
   }
 
   <!-- ══════════ 卡片詳細浮層（滑鼠移入時顯示） ══════════ -->
@@ -867,7 +887,7 @@
       <div
         class="anim-damage absolute left-1/2 -translate-x-1/2 drop-shadow-[0_2px_8px_rgba(0,0,0,0.9)]"
         [class]="popupClass(p.kind)"
-        [style.top]="p.seat === 'npc' ? '16%' : '56%'"
+        [style.top]="p.seat === store.mySeat() ? '56%' : '16%'"
       >
         {{ p.text }}
       </div>
@@ -878,112 +898,320 @@
   @if (showHeroSelect()) {
     <div class="fixed inset-0 z-[110] flex items-center justify-center bg-slate-950/90 p-4 backdrop-blur-md">
       <div class="anim-sheet flex max-h-[94vh] w-full max-w-4xl flex-col overflow-hidden rounded-xl border border-amber-500/40 bg-slate-900/95 shadow-2xl">
-        <header class="flex shrink-0 items-center justify-between border-b border-slate-800 bg-slate-950/70 px-5 py-3.5">
+        <header class="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-slate-800 bg-slate-950/70 px-5 py-3.5">
           <div>
-            <h2 class="text-lg font-black tracking-wider text-amber-300">選擇對決英雄</h2>
-            <p class="text-xs text-slate-400">第一步：選擇你的流派角色 · 第二步：選擇對手電腦角色</p>
+            <h2 class="text-lg font-black tracking-wider text-amber-300">對局模式設定</h2>
+            <p class="text-xs text-slate-400">
+              {{ modeTab() === 'solo' ? '與電腦 NPC 對戰，磨練你的卡牌技巧' : '透過 WebRTC 與好友連線，跨裝置即時對戰' }}
+            </p>
           </div>
+
+          <!-- 模式切換按鈕 -->
+          <div class="flex items-center rounded-lg border border-slate-700 bg-slate-950 p-1">
+            <button
+              type="button"
+              class="rounded px-3 py-1 text-xs font-bold transition cursor-pointer"
+              [class]="modeTab() === 'solo' ? 'bg-amber-500 text-slate-950 shadow' : 'text-slate-400 hover:text-slate-200'"
+              (click)="modeTab.set('solo')"
+            >
+              🤖 單機對戰
+            </button>
+            <button
+              type="button"
+              class="rounded px-3 py-1 text-xs font-bold transition cursor-pointer"
+              [class]="modeTab() === 'p2p' ? 'bg-amber-500 text-slate-950 shadow' : 'text-slate-400 hover:text-slate-200'"
+              (click)="modeTab.set('p2p')"
+            >
+              🌐 雙人連線
+            </button>
+          </div>
+
           @if (!winner() && store.state().turn > 0) {
             <button type="button" class="btn btn--ghost btn--sm" (click)="closeHeroSelect()">關閉</button>
           }
         </header>
 
-        <div class="scroll-y flex-1 space-y-5 p-5">
-          <!-- 玩家選擇 -->
-          <div>
-            <div class="mb-2.5 flex items-center gap-2">
-              <span class="flex h-5 w-5 items-center justify-center rounded-full bg-amber-500 text-xs font-black text-slate-950">1</span>
-              <h3 class="text-sm font-bold text-slate-200">你的英雄（玩家先選）</h3>
-            </div>
+        @if (modeTab() === 'solo') {
+          <div class="scroll-y flex-1 space-y-5 p-5">
+            <!-- 玩家選擇 -->
+            <div>
+              <div class="mb-2.5 flex items-center gap-2">
+                <span class="flex h-5 w-5 items-center justify-center rounded-full bg-amber-500 text-xs font-black text-slate-950">1</span>
+                <h3 class="text-sm font-bold text-slate-200">你的英雄（玩家先選）</h3>
+              </div>
 
-            <div class="grid grid-cols-1 gap-3 md:grid-cols-3">
-              @for (id of characterIds; track id) {
-                @let c = characters[id];
-                <button
-                  type="button"
-                  class="relative flex flex-col rounded-xl border p-4 text-left transition-all hover:scale-[1.01]"
-                  [class]="selectedPlayerChar() === id
-                    ? 'border-amber-400 bg-gradient-to-b ' + c.bgGradient + ' ring-2 ring-amber-400/40 shadow-lg'
-                    : 'border-slate-800 bg-slate-950/60 opacity-75 hover:opacity-100 hover:border-slate-700'"
-                  (click)="selectedPlayerChar.set(id)"
-                >
-                  <div class="flex items-center justify-between">
-                    <span class="text-base font-black text-slate-100">{{ c.title }}</span>
-                    <span
-                      class="tag tag--sm"
-                      [class]="c.colorName === 'rose' ? 'tag--rose' : c.colorName === 'sky' ? 'tag--sky' : 'tag--emerald'"
-                    >
-                      {{ c.badge }}
-                    </span>
-                  </div>
-                  <div class="mt-2 text-xs font-semibold text-amber-300/90">{{ c.primaryPlaystyle }}</div>
-                  <p class="mt-2 text-[11px] leading-relaxed text-slate-300">{{ c.summary }}</p>
-                  <div class="mt-3 rounded-lg border border-slate-700/50 bg-slate-950/40 p-2 text-[10px] leading-relaxed text-slate-400">
-                    <strong class="text-slate-200">專屬機制：</strong>{{ c.featureDesc }}
-                  </div>
-                  @if (selectedPlayerChar() === id) {
-                    <div class="mt-3 flex items-center gap-1.5 text-xs font-bold text-amber-400">
-                      <span>✓ 已選擇此英雄</span>
+              <div class="grid grid-cols-1 gap-3 md:grid-cols-3">
+                @for (id of characterIds; track id) {
+                  @let c = characters[id];
+                  <button
+                    type="button"
+                    class="relative flex flex-col rounded-xl border p-4 text-left transition-all hover:scale-[1.01]"
+                    [class]="selectedPlayerChar() === id
+                      ? 'border-amber-400 bg-gradient-to-b ' + c.bgGradient + ' ring-2 ring-amber-400/40 shadow-lg'
+                      : 'border-slate-800 bg-slate-950/60 opacity-75 hover:opacity-100 hover:border-slate-700'"
+                    (click)="selectedPlayerChar.set(id)"
+                  >
+                    <div class="flex items-center justify-between">
+                      <span class="text-base font-black text-slate-100">{{ c.title }}</span>
+                      <span
+                        class="tag tag--sm"
+                        [class]="c.colorName === 'rose' ? 'tag--rose' : c.colorName === 'sky' ? 'tag--sky' : 'tag--emerald'"
+                      >
+                        {{ c.badge }}
+                      </span>
                     </div>
-                  }
-                </button>
-              }
+                    <div class="mt-2 text-xs font-semibold text-amber-300/90">{{ c.primaryPlaystyle }}</div>
+                    <p class="mt-2 text-[11px] leading-relaxed text-slate-300">{{ c.summary }}</p>
+                    <div class="mt-3 rounded-lg border border-slate-700/50 bg-slate-950/40 p-2 text-[10px] leading-relaxed text-slate-400">
+                      <strong class="text-slate-200">專屬機制：</strong>{{ c.featureDesc }}
+                    </div>
+                    @if (selectedPlayerChar() === id) {
+                      <div class="mt-3 flex items-center gap-1.5 text-xs font-bold text-amber-400">
+                        <span>✓ 已選擇此英雄</span>
+                      </div>
+                    }
+                  </button>
+                }
+              </div>
             </div>
-          </div>
 
-          <!-- 電腦對手選擇 -->
-          <div>
-            <div class="mb-2.5 flex items-center gap-2">
-              <span class="flex h-5 w-5 items-center justify-center rounded-full bg-rose-500 text-xs font-black text-white">2</span>
-              <h3 class="text-sm font-bold text-slate-200">對手英雄（電腦選擇）</h3>
-            </div>
+            <!-- 電腦對手選擇 -->
+            <div>
+              <div class="mb-2.5 flex items-center gap-2">
+                <span class="flex h-5 w-5 items-center justify-center rounded-full bg-rose-500 text-xs font-black text-white">2</span>
+                <h3 class="text-sm font-bold text-slate-200">對手英雄（電腦選擇）</h3>
+              </div>
 
-            <div class="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
-              <button
-                type="button"
-                class="flex flex-col items-center justify-center rounded-lg border p-3 text-center transition hover:border-slate-600"
-                [class]="selectedNpcChar() === 'random'
-                  ? 'border-purple-400 bg-purple-950/40 ring-2 ring-purple-400/30'
-                  : 'border-slate-800 bg-slate-950/60 opacity-75'"
-                (click)="selectedNpcChar.set('random')"
-              >
-                <span class="text-xl">🎲</span>
-                <span class="mt-1 text-xs font-bold text-slate-200">隨機對手</span>
-                <span class="text-[10px] text-slate-500">電腦隨機匹配</span>
-              </button>
-
-              @for (id of characterIds; track id) {
-                @let c = characters[id];
+              <div class="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
                 <button
                   type="button"
                   class="flex flex-col items-center justify-center rounded-lg border p-3 text-center transition hover:border-slate-600"
-                  [class]="selectedNpcChar() === id
-                    ? 'border-rose-400 bg-gradient-to-b ' + c.bgGradient + ' ring-2 ring-rose-400/30'
+                  [class]="selectedNpcChar() === 'random'
+                    ? 'border-purple-400 bg-purple-950/40 ring-2 ring-purple-400/30'
                     : 'border-slate-800 bg-slate-950/60 opacity-75'"
-                  (click)="selectedNpcChar.set(id)"
+                  (click)="selectedNpcChar.set('random')"
                 >
-                  <span class="text-xs font-bold text-slate-200">{{ c.title }}</span>
-                  <span
-                    class="mt-1 tag tag--sm text-[9px]"
-                    [class]="c.colorName === 'rose' ? 'tag--rose' : c.colorName === 'sky' ? 'tag--sky' : 'tag--emerald'"
-                  >
-                    {{ c.name }}
-                  </span>
+                  <span class="text-xl">🎲</span>
+                  <span class="mt-1 text-xs font-bold text-slate-200">隨機對手</span>
+                  <span class="text-[10px] text-slate-500">電腦隨機匹配</span>
                 </button>
+
+                @for (id of characterIds; track id) {
+                  @let c = characters[id];
+                  <button
+                    type="button"
+                    class="flex flex-col items-center justify-center rounded-lg border p-3 text-center transition hover:border-slate-600"
+                    [class]="selectedNpcChar() === id
+                      ? 'border-rose-400 bg-gradient-to-b ' + c.bgGradient + ' ring-2 ring-rose-400/30'
+                      : 'border-slate-800 bg-slate-950/60 opacity-75'"
+                    (click)="selectedNpcChar.set(id)"
+                  >
+                    <span class="text-xs font-bold text-slate-200">{{ c.title }}</span>
+                    <span
+                      class="mt-1 tag tag--sm text-[9px]"
+                      [class]="c.colorName === 'rose' ? 'tag--rose' : c.colorName === 'sky' ? 'tag--sky' : 'tag--emerald'"
+                    >
+                      {{ c.name }}
+                    </span>
+                  </button>
+                }
+              </div>
+            </div>
+          </div>
+
+          <footer class="flex shrink-0 items-center justify-between border-t border-slate-800 bg-slate-950/80 px-5 py-3.5">
+            <div class="text-xs text-slate-400">
+              你將以 <b class="text-amber-300">{{ characters[selectedPlayerChar()].title }}</b> 對決
+              <b class="text-rose-300">{{ selectedNpcTitle() }}</b>
+            </div>
+            <button type="button" class="btn btn--amber btn--lg font-bold" (click)="startSelectedGame()">
+              踏入江湖 · 開始單機對局 ➔
+            </button>
+          </footer>
+        } @else {
+          <!-- P2P 連線分頁 -->
+          <div class="scroll-y flex-1 space-y-6 p-5">
+            <!-- 房間建立/加入切換 -->
+            <div class="flex items-center gap-3 border-b border-slate-800/80 pb-3">
+              <button
+                type="button"
+                class="rounded-lg px-4 py-2 text-sm font-bold transition cursor-pointer"
+                [class]="p2pTab() === 'host' ? 'bg-amber-400/20 text-amber-300 ring-1 ring-amber-400/40' : 'text-slate-400 hover:text-slate-200'"
+                (click)="p2pTab.set('host')"
+              >
+                👑 我要開房（房主）
+              </button>
+              <button
+                type="button"
+                class="rounded-lg px-4 py-2 text-sm font-bold transition cursor-pointer"
+                [class]="p2pTab() === 'join' ? 'bg-sky-400/20 text-sky-300 ring-1 ring-sky-400/40' : 'text-slate-400 hover:text-slate-200'"
+                (click)="p2pTab.set('join')"
+              >
+                🎮 加入好友房間（客人）
+              </button>
+            </div>
+
+            <!-- 第一步：選擇你的流派角色 -->
+            <div>
+              <div class="mb-2.5 flex items-center gap-2">
+                <span class="flex h-5 w-5 items-center justify-center rounded-full bg-amber-500 text-xs font-black text-slate-950">1</span>
+                <h3 class="text-sm font-bold text-slate-200">選擇你的英雄流派</h3>
+              </div>
+
+              <div class="grid grid-cols-1 gap-3 md:grid-cols-3">
+                @for (id of characterIds; track id) {
+                  @let c = characters[id];
+                  <button
+                    type="button"
+                    class="relative flex flex-col rounded-xl border p-3.5 text-left transition-all hover:scale-[1.01]"
+                    [class]="selectedPlayerChar() === id
+                      ? 'border-amber-400 bg-gradient-to-b ' + c.bgGradient + ' ring-2 ring-amber-400/40 shadow-lg'
+                      : 'border-slate-800 bg-slate-950/60 opacity-75 hover:opacity-100 hover:border-slate-700'"
+                    (click)="selectedPlayerChar.set(id)"
+                  >
+                    <div class="flex items-center justify-between">
+                      <span class="text-sm font-black text-slate-100">{{ c.title }}</span>
+                      <span
+                        class="tag tag--sm"
+                        [class]="c.colorName === 'rose' ? 'tag--rose' : c.colorName === 'sky' ? 'tag--sky' : 'tag--emerald'"
+                      >
+                        {{ c.badge }}
+                      </span>
+                    </div>
+                    <div class="mt-1.5 text-[11px] font-semibold text-amber-300/90">{{ c.primaryPlaystyle }}</div>
+                    <p class="mt-1.5 text-[10px] leading-relaxed text-slate-300">{{ c.summary }}</p>
+                    @if (selectedPlayerChar() === id) {
+                      <div class="mt-2.5 flex items-center gap-1 text-[11px] font-bold text-amber-400">
+                        <span>✓ 已選擇此英雄</span>
+                      </div>
+                    }
+                  </button>
+                }
+              </div>
+            </div>
+
+            <!-- 第二步：連線控制 -->
+            <div>
+              <div class="mb-2.5 flex items-center gap-2">
+                <span class="flex h-5 w-5 items-center justify-center rounded-full bg-sky-500 text-xs font-black text-white">2</span>
+                <h3 class="text-sm font-bold text-slate-200">
+                  {{ p2pTab() === 'host' ? '建立房間並等待好友' : '輸入房間碼連線' }}
+                </h3>
+              </div>
+
+              @if (p2pTab() === 'host') {
+                <div class="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
+                  @if (p2p.status() === 'idle' || p2p.status() === 'error') {
+                    <div class="flex flex-col items-center justify-center py-6 gap-3">
+                      <p class="text-xs text-slate-400">點擊下方按鈕建立連線房間，將自動生成專屬房間代碼</p>
+                      <button
+                        type="button"
+                        class="btn btn--amber btn--lg font-bold cursor-pointer"
+                        [disabled]="isConnecting()"
+                        (click)="createP2PRoom()"
+                      >
+                        {{ isConnecting() ? '正在建立房間…' : '建立對戰房間' }}
+                      </button>
+                      @if (p2p.errorMessage()) {
+                        <p class="text-xs text-red-400">{{ p2p.errorMessage() }}</p>
+                      }
+                    </div>
+                  } @else {
+                    <div class="flex flex-col items-center justify-center py-4 gap-3 text-center">
+                      <span class="text-xs text-slate-400">你的房間代碼：</span>
+                      <div class="flex items-center gap-2">
+                        <span class="font-mono text-3xl font-black tracking-widest text-amber-300 bg-slate-900 border border-slate-700 px-4 py-1.5 rounded-lg select-all">
+                          {{ p2p.roomCode() }}
+                        </span>
+                        <button type="button" class="btn btn--slate btn--sm cursor-pointer" (click)="copyRoomCode()">
+                          {{ copySuccess() ? '已複製！' : '複製代碼' }}
+                        </button>
+                        <button type="button" class="btn btn--amber btn--sm cursor-pointer" (click)="copyInviteLink()">
+                          複製邀請連結
+                        </button>
+                      </div>
+
+                      @if (p2p.status() === 'hosting') {
+                        <div class="mt-2 flex items-center gap-2 text-xs text-slate-400 animate-pulse">
+                          <span>⏳ 等待好友加入中… 請將代碼或連結發給朋友</span>
+                        </div>
+                      } @else if (p2p.status() === 'connected') {
+                        <div class="mt-2 rounded-lg border border-emerald-500/40 bg-emerald-950/30 px-4 py-2 text-center">
+                          <p class="text-sm font-bold text-emerald-300">
+                            🎉 好友已成功連入！對方流派：{{ opponentCharDef().title }}
+                          </p>
+                          <p class="text-[11px] text-slate-400 mt-1">點擊下方按鈕即可開局！</p>
+                        </div>
+                      }
+                    </div>
+                  }
+                </div>
+              } @else {
+                <!-- 加入房間區 -->
+                <div class="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
+                  <div class="flex flex-col items-center justify-center py-4 gap-3 max-w-md mx-auto">
+                    <label class="w-full text-xs text-slate-400 text-left">請輸入房主的房間代碼：</label>
+                    <div class="flex w-full gap-2">
+                      <input
+                        type="text"
+                        placeholder="例：QM-1234"
+                        class="flex-1 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 font-mono text-sm uppercase tracking-wider text-slate-100 placeholder:text-slate-600 focus:border-amber-400 focus:outline-none"
+                        [value]="joinCodeInput()"
+                        (input)="joinCodeInput.set($any($event.target).value)"
+                        (keyup.enter)="joinP2PRoom()"
+                      />
+                      <button
+                        type="button"
+                        class="btn btn--sky btn--md font-bold shrink-0 cursor-pointer"
+                        [disabled]="isConnecting() || !joinCodeInput().trim()"
+                        (click)="joinP2PRoom()"
+                      >
+                        {{ isConnecting() ? '連線中…' : '連入房間' }}
+                      </button>
+                    </div>
+
+                    @if (p2p.errorMessage()) {
+                      <p class="text-xs text-red-400 w-full text-left">{{ p2p.errorMessage() }}</p>
+                    }
+
+                    @if (p2p.status() === 'connected') {
+                      <div class="mt-2 w-full rounded-lg border border-emerald-500/40 bg-emerald-950/30 px-4 py-2 text-center animate-pulse">
+                        <span class="text-xs font-bold text-emerald-300">
+                          ✓ 已成功連線！請等待房主啟動對局…
+                        </span>
+                      </div>
+                    }
+                  </div>
+                </div>
               }
             </div>
           </div>
-        </div>
 
-        <footer class="flex shrink-0 items-center justify-between border-t border-slate-800 bg-slate-950/80 px-5 py-3.5">
-          <div class="text-xs text-slate-400">
-            你將以 <b class="text-amber-300">{{ characters[selectedPlayerChar()].title }}</b> 對決
-            <b class="text-rose-300">{{ selectedNpcTitle() }}</b>
-          </div>
-          <button type="button" class="btn btn--amber btn--lg font-bold" (click)="startSelectedGame()">
-            踏入江湖 · 開始對局 ➔
-          </button>
-        </footer>
+          <footer class="flex shrink-0 items-center justify-between border-t border-slate-800 bg-slate-950/80 px-5 py-3.5">
+            <div class="text-xs text-slate-400">
+              @if (p2pTab() === 'host') {
+                @if (p2p.status() === 'connected') {
+                  <span class="text-emerald-300 font-bold">雙方已就緒，隨時可開始</span>
+                } @else {
+                  <span>開房後發送連結給好友即可對戰</span>
+                }
+              } @else {
+                <span>連入後請稍候房主開局</span>
+              }
+            </div>
+
+            @if (p2pTab() === 'host') {
+              <button
+                type="button"
+                class="btn btn--amber btn--lg font-bold cursor-pointer"
+                [disabled]="p2p.status() !== 'connected'"
+                (click)="startP2PGame()"
+              >
+                踏入江湖 · 開始雙人對決 ➔
+              </button>
+            }
+          </footer>
+        }
       </div>
     </div>
   }

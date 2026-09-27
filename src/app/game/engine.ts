@@ -87,6 +87,10 @@ export interface CreateGameOptions {
    * 預設 true；測試與 AI 對戰可設 false 走自動流程。
    */
   manualLifeSetup?: boolean;
+  /**
+   * 雙方玩家是否都要自己挑生命卡（連線對戰用）。
+   */
+  manualLifeSetupBoth?: boolean;
 }
 
 /**
@@ -153,12 +157,17 @@ export function createGame(seed: number, opts: CreateGameOptions = {}): GameStat
     log(state, seat, `${seatLabel(seat)}起始抽 ${count} 張卡。`, 'info');
   }
 
-  // NPC 的生命區自動決定
-  autoSetupLife(state, 'npc');
+  if (!opts.manualLifeSetupBoth) {
+    // 單機模式或測試：NPC 的生命區自動決定
+    autoSetupLife(state, 'npc');
+  }
 
   // 玩家自己挑 3 張（除非呼叫端要求自動，例如測試或 AI 對戰）
   if (opts.manualLifeSetup === false) {
     autoSetupLife(state, 'player');
+    if (opts.manualLifeSetupBoth) {
+      autoSetupLife(state, 'npc');
+    }
     finishSetup(state);
   } else {
     state.pending = {
@@ -266,6 +275,21 @@ function finishLifeSetupChoice(state: GameState, pending: PendingChoice): void {
     `生命區設定完成（${side.life.length} 張），手牌 ${side.hand.length} 張。`,
     'info',
   );
+
+  // 若另一座位的生命區尚未設定（例如連線模式），輪到另一方設定
+  const otherSeat: Seat = pending.seat === 'player' ? 'npc' : 'player';
+  if (state.sides[otherSeat].life.length === 0) {
+    state.pending = {
+      kind: 'lifeSetup',
+      seat: otherSeat,
+      prompt: `從手牌選擇 ${RULES.lifeCount} 張覆蓋到生命區`,
+      candidates: [...state.sides[otherSeat].hand],
+      pick: RULES.lifeCount,
+      selected: [],
+    };
+    log(state, otherSeat, `輪到${seatLabel(otherSeat)}從手牌選擇 ${RULES.lifeCount} 張卡作為生命區。`, 'system');
+    return;
+  }
 
   finishSetup(state);
 }

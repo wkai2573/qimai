@@ -93,6 +93,24 @@ export class App {
     this.showSettings.set(false);
   }
 
+  // ── P2P 連線與對戰模式 ──
+  readonly p2p = this.store.p2p;
+  readonly gameMode = this.store.gameMode;
+  readonly isHost = this.store.isHost;
+  readonly isGuest = this.store.isGuest;
+  readonly mySide = this.store.mySide;
+  readonly opponentSide = this.store.opponentSide;
+  readonly myCharDef = computed(() => CHARACTERS[this.store.myChar()]);
+  readonly opponentCharDef = computed(() => CHARACTERS[this.store.opponentChar()]);
+
+  // 模式選擇分頁：單機對戰 vs 連線對戰
+  readonly modeTab = signal<'solo' | 'p2p'>('solo');
+  // 連線子分頁：開房 vs 加入
+  readonly p2pTab = signal<'host' | 'join'>('host');
+  readonly joinCodeInput = signal('');
+  readonly copySuccess = signal(false);
+  readonly isConnecting = signal(false);
+
   // ── 角色選擇 ──
   readonly characters = CHARACTERS;
   readonly characterIds = CHARACTER_IDS;
@@ -107,8 +125,8 @@ export class App {
   );
 
   openHeroSelect(): void {
-    this.selectedPlayerChar.set(this.store.playerChar());
-    this.selectedNpcChar.set(this.store.npcChar());
+    this.selectedPlayerChar.set(this.store.myChar());
+    this.selectedNpcChar.set(this.store.opponentChar());
     this.showHeroSelect.set(true);
   }
 
@@ -125,6 +143,58 @@ export class App {
     }
     this.store.newGame(undefined, p, n);
     this.showHeroSelect.set(false);
+  }
+
+  async createP2PRoom(): Promise<void> {
+    this.isConnecting.set(true);
+    try {
+      await this.p2p.createRoom();
+      this.store.playerChar.set(this.selectedPlayerChar());
+    } catch {
+    } finally {
+      this.isConnecting.set(false);
+    }
+  }
+
+  async joinP2PRoom(): Promise<void> {
+    const code = this.joinCodeInput().trim();
+    if (!code) return;
+    this.isConnecting.set(true);
+    try {
+      await this.p2p.joinRoom(code);
+      this.p2p.send({
+        type: 'GUEST_HELLO',
+        hero: this.selectedPlayerChar(),
+      });
+      this.store.npcChar.set(this.selectedPlayerChar());
+    } catch {
+    } finally {
+      this.isConnecting.set(false);
+    }
+  }
+
+  startP2PGame(): void {
+    const hostHero = this.selectedPlayerChar();
+    const guestHero = this.store.npcChar();
+    this.store.startP2PGame(hostHero, guestHero);
+    this.showHeroSelect.set(false);
+  }
+
+  async copyRoomCode(): Promise<void> {
+    try {
+      await navigator.clipboard.writeText(this.p2p.roomCode());
+      this.copySuccess.set(true);
+      setTimeout(() => this.copySuccess.set(false), 2000);
+    } catch {}
+  }
+
+  async copyInviteLink(): Promise<void> {
+    try {
+      const url = `${window.location.origin}${window.location.pathname}?room=${this.p2p.roomCode()}`;
+      await navigator.clipboard.writeText(url);
+      this.copySuccess.set(true);
+      setTimeout(() => this.copySuccess.set(false), 2000);
+    } catch {}
   }
 
   // ── 規則說明 ──
@@ -189,7 +259,7 @@ export class App {
    * 若直接回傳原陣列，computed 會因為 Object.is 相等而不通知下游，
    * 排版 effect 就不會重跑——抽到新牌時手牌會來不及收窄而溢出畫面。
    */
-  readonly hand = computed(() => [...this.store.player().hand]);
+  readonly hand = computed(() => [...this.store.mySide().hand]);
 
   /** 手牌列容器，用來量測可用寬度 */
   readonly handRow = viewChild<ElementRef<HTMLElement>>('handRow');
@@ -228,6 +298,27 @@ export class App {
   private ignoreNextClick = false;
 
   constructor() {
+    // 檢查網址參數是否帶有 room 邀請碼
+    try {
+      if (typeof window !== 'undefined' && window.location) {
+        const params = new URLSearchParams(window.location.search);
+        const room = params.get('room');
+        if (room) {
+          this.modeTab.set('p2p');
+          this.p2pTab.set('join');
+          this.joinCodeInput.set(room);
+          this.showHeroSelect.set(true);
+        }
+      }
+    } catch {}
+
+    // 客人端在遊戲開始後自動關閉選擇英雄視窗
+    effect(() => {
+      if (this.store.isGuest() && this.store.state().phase !== 'ended') {
+        this.showHeroSelect.set(false);
+      }
+    });
+
     // 容器尺寸改變（視窗縮放、日誌欄收合…）時重算
     effect((onCleanup) => {
       const el = this.handRow()?.nativeElement;
@@ -298,7 +389,7 @@ export class App {
   readonly resultText = computed(() => {
     const w = this.store.winner();
     if (!w) return '';
-    return w === 'player' ? '你贏了！' : '你輸了。';
+    return w === this.store.mySeat() ? '你贏了！' : '你輸了。';
   });
 
   /** 戰鬥區當前所有卡牌的名稱、類別與效果說明 */
@@ -558,7 +649,7 @@ export class App {
     const view = this.pileView();
     if (!view) return '';
 
-    const who = view.seat === 'player' ? '你的' : '對手的';
+    const who = view.seat === this.store.mySeat() ? '你的' : '對手的';
     const names: Record<PileKind, string> = {
       deck: '牌組',
       anger: '怒氣區',
@@ -573,8 +664,8 @@ export class App {
   });
 
   readonly playerNonEquipBuffs = computed(() => {
-    const eqNames = new Set(this.player().equipment.map((e) => card(e.defId).name));
-    return this.player().buffs.filter((b) => !eqNames.has(b.source));
+    const eqNames = new Set(this.mySide().equipment.map((e) => card(e.defId).name));
+    return this.mySide().buffs.filter((b) => !eqNames.has(b.source));
   });
 
   /** 牌組內容是隱藏資訊，不提供檢視 */

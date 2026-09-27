@@ -1,4 +1,4 @@
-import { Injectable, computed, signal } from '@angular/core';
+import { Injectable, computed, inject, signal } from '@angular/core';
 
 import { npcCombatPhase, npcMainPhase, npcShouldBurst } from './game/ai';
 import { card } from './game/cards';
@@ -16,6 +16,8 @@ import {
 import { canPlayWithCooldown, modifier } from './game/internal';
 import type { CardInstance, CharacterId, GameState, LogEntry, Seat } from './game/types';
 import { RULES } from './game/types';
+import { P2PService } from './p2p/p2p-service';
+import type { GameAction, P2PMessage } from './p2p/p2p-types';
 
 /** 可以點開查看內容的堆疊區 */
 export type PileKind = 'deck' | 'anger' | 'discard' | 'life' | 'level' | 'questDeck' | 'cooldown' | 'chant';
@@ -86,11 +88,28 @@ export interface FxPopup {
 
 @Injectable({ providedIn: 'root' })
 export class GameStore {
+  readonly p2p = inject(P2PService);
+
   private readonly _state = signal<GameState>(createGame(GameStore.randomSeed()));
 
   readonly state = this._state.asReadonly();
 
-  /** NPC 正在思考（UI 用來鎖住玩家操作） */
+  /** 對戰模式：單機或連線 */
+  readonly gameMode = signal<'solo' | 'p2p'>('solo');
+
+  /** 當前客戶端的座位（單機為 player；連線房主為 player，客人為 npc） */
+  readonly mySeat = signal<Seat>('player');
+
+  /** 對手的座位 */
+  readonly opponentSeat = computed<Seat>(() => (this.mySeat() === 'player' ? 'npc' : 'player'));
+
+  /** 是否為 P2P 房主 */
+  readonly isHost = computed(() => this.gameMode() === 'p2p' && this.mySeat() === 'player');
+
+  /** 是否為 P2P 客人 */
+  readonly isGuest = computed(() => this.gameMode() === 'p2p' && this.mySeat() === 'npc');
+
+  /** NPC 正在思考（UI 用來鎖住玩家操作，僅限單機 AI 回合） */
   readonly npcThinking = signal(false);
 
   /** 目前畫面上的效果飄字 */
@@ -115,23 +134,39 @@ export class GameStore {
   /** 其他待決選擇（開局生命區、檢索） */
   readonly pendingChoice = computed(() => this._state().pending);
 
-  // ── 衍生的檢視狀態 ──
+  // ── 衍生的檢視狀態（視角自適應） ──
   readonly phase = computed(() => this._state().phase);
   readonly turn = computed(() => this._state().turn);
   readonly activeSeat = computed(() => this._state().activeSeat);
   readonly winner = computed(() => this._state().winner);
   readonly combat = computed(() => this._state().combat);
   readonly log = computed(() => this._state().log);
+
+  /** 依自己座位取出的我方盤面 */
+  readonly mySide = computed(() => this._state().sides[this.mySeat()]);
+  /** 依自己座位取出的對手盤面 */
+  readonly opponentSide = computed(() => this._state().sides[this.opponentSeat()]);
+
+  /** 我方的角色流派 */
+  readonly myChar = computed(() => (this.mySeat() === 'player' ? this.playerChar() : this.npcChar()));
+  /** 對手的角色流派 */
+  readonly opponentChar = computed(() => (this.mySeat() === 'player' ? this.npcChar() : this.playerChar()));
+
+  /** 相容舊程式碼的 getter */
   readonly player = computed(() => this._state().sides.player);
   readonly npc = computed(() => this._state().sides.npc);
 
-  /** 玩家現在是否可以操作 */
+  /** 目前是否輪到自己操作 */
+  readonly isMyTurn = computed(() => !this._state().winner && this._state().activeSeat === this.mySeat());
+
+  /** 玩家現在是否可以主動出牌／出招／換階段 */
   readonly playerCanAct = computed(() => {
     const s = this._state();
+    const seat = this.mySeat();
     return (
       !s.winner &&
-      s.activeSeat === 'player' &&
-      !this.npcThinking() &&
+      s.activeSeat === seat &&
+      (this.gameMode() === 'p2p' || !this.npcThinking()) &&
       s.pendingRebuild === null &&
       s.pending === null
     );
@@ -149,6 +184,7 @@ export class GameStore {
 
   constructor() {
     this.logCursor = this._state().log.length;
+    this.p2p.onMessage((msg) => this.handleP2PMessage(msg));
     this.afterChange();
   }
 
@@ -157,6 +193,8 @@ export class GameStore {
   // ─────────────────────────────────────────────
 
   newGame(seed?: number, playerChar?: CharacterId, npcChar?: CharacterId): void {
+    this.gameMode.set('solo');
+    this.mySeat.set('player');
     if (playerChar) this.playerChar.set(playerChar);
     if (npcChar) this.npcChar.set(npcChar);
     this.npcThinking.set(false);
@@ -170,8 +208,70 @@ export class GameStore {
     this.afterChange();
   }
 
+  /** P2P 房主啟動連線對局 */
+  startP2PGame(hostChar: CharacterId, guestChar: CharacterId, seed?: number): void {
+    this.gameMode.set('p2p');
+    this.mySeat.set('player');
+    this.playerChar.set(hostChar);
+    this.npcChar.set(guestChar);
+    this.npcThinking.set(false);
+    this.popups.set([]);
+
+    const actualSeed = seed ?? GameStore.randomSeed();
+    const next = createGame(actualSeed, {
+      playerCharacter: hostChar,
+      npcCharacter: guestChar,
+      manualLifeSetupBoth: true,
+    });
+    this.logCursor = next.log.length;
+    this._state.set(next);
+
+    this.p2p.send({
+      type: 'GAME_START',
+      seed: actualSeed,
+      hostHero: hostChar,
+      guestHero: guestChar,
+      state: next,
+    });
+  }
+
+  /** P2P 客人收到開局訊息初始化 */
+  initAsP2PGuest(seed: number, hostHero: CharacterId, guestHero: CharacterId, state: GameState): void {
+    this.gameMode.set('p2p');
+    this.mySeat.set('npc');
+    this.playerChar.set(hostHero);
+    this.npcChar.set(guestHero);
+    this.npcThinking.set(false);
+    this.popups.set([]);
+    this.applyRemoteState(state);
+  }
+
+  /** 接收來自對方的盤面狀態更新 */
+  applyRemoteState(state: GameState, popups?: FxPopup[], combatSeq?: number): void {
+    this.logCursor = state.log.length;
+    this._state.set({
+      ...state,
+      sides: {
+        player: { ...state.sides.player },
+        npc: { ...state.sides.npc },
+      },
+    });
+    if (popups) {
+      this.popups.set(popups);
+    }
+    if (combatSeq !== undefined) {
+      this.combatSeq.set(combatSeq);
+    }
+  }
+
   /** 重播：用同一組 seed 重開，牌序會完全一樣 */
   restartSameSeed(): void {
+    if (this.gameMode() === 'p2p') {
+      if (this.isHost()) {
+        this.startP2PGame(this.playerChar(), this.npcChar(), this._state().seed);
+      }
+      return;
+    }
     this.newGame(this._state().seed);
   }
 
@@ -193,6 +293,14 @@ export class GameStore {
 
   /** 玩家在檢索／開局對話框裡點了一張卡 */
   chooseCard(iid: number): void {
+    if (this.isGuest()) {
+      this.p2p.send({ type: 'ACTION', seat: 'npc', action: { type: 'CHOOSE_CARD', iid } });
+      return;
+    }
+    this.executeChooseCard(iid);
+  }
+
+  executeChooseCard(iid: number): void {
     const s = this._state();
     if (!s.pending) return;
 
@@ -203,6 +311,14 @@ export class GameStore {
 
   /** 玩家在重構對話框裡挑好要加入手牌的生命卡 */
   chooseLifeCard(iid: number): void {
+    if (this.isGuest()) {
+      this.p2p.send({ type: 'ACTION', seat: 'npc', action: { type: 'CHOOSE_LIFE', iid } });
+      return;
+    }
+    this.executeChooseLife(iid);
+  }
+
+  executeChooseLife(iid: number): void {
     const s = this._state();
     if (!s.pendingRebuild) return;
 
@@ -213,31 +329,55 @@ export class GameStore {
 
   burst(use: boolean): void {
     if (!this.playerCanAct()) return;
+    if (this.isGuest()) {
+      this.p2p.send({ type: 'ACTION', seat: 'npc', action: { type: 'BURST', use } });
+      return;
+    }
+    this.executeBurst(use);
+  }
+
+  executeBurst(use: boolean): void {
     this.mutate((s) => resolveBurst(s, use));
   }
 
   play(iid: number): void {
     if (!this.playerCanAct()) return;
+    if (this.isGuest()) {
+      this.p2p.send({ type: 'ACTION', seat: 'npc', action: { type: 'PLAY', iid } });
+      return;
+    }
+    this.executePlay(this.mySeat(), iid);
+  }
+
+  executePlay(seat: Seat, iid: number): void {
     const s = this._state();
-    const inst = s.sides.player.hand.find((c) => c.iid === iid);
+    const inst = s.sides[seat].hand.find((c) => c.iid === iid);
 
     // 主要階段點擊帶有詠唱特性的招式卡，直接進行詠唱
     if (s.phase === 'main' && inst && card(inst.defId).kind === 'technique' && card(inst.defId).chant) {
-      this.chant(iid);
+      this.executeChant(seat, iid);
       return;
     }
 
     if (s.phase === 'combat') {
-      this.mutate((st) => playTechnique(st, 'player', iid));
+      this.mutate((st) => playTechnique(st, seat, iid));
     } else {
-      this.mutate((st) => playCard(st, 'player', iid));
+      this.mutate((st) => playCard(st, seat, iid));
     }
   }
 
   chant(iid: number): void {
     if (!this.playerCanAct()) return;
+    if (this.isGuest()) {
+      this.p2p.send({ type: 'ACTION', seat: 'npc', action: { type: 'CHANT', iid } });
+      return;
+    }
+    this.executeChant(this.mySeat(), iid);
+  }
+
+  executeChant(seat: Seat, iid: number): void {
     const s = this._state();
-    const res = chantTechnique(s, 'player', iid);
+    const res = chantTechnique(s, seat, iid);
     if (res.ok) {
       this.publish(s);
       this.afterChange();
@@ -246,18 +386,41 @@ export class GameStore {
 
   enterCombatPhase(): void {
     if (!this.playerCanAct()) return;
+    if (this.isGuest()) {
+      this.p2p.send({ type: 'ACTION', seat: 'npc', action: { type: 'ENTER_COMBAT' } });
+      return;
+    }
+    this.executeEnterCombat();
+  }
+
+  executeEnterCombat(): void {
     this.mutate((s) => enterCombat(s));
   }
 
   attack(iid: number): void {
     if (!this.playerCanAct()) return;
-    this.mutate((s) => playTechnique(s, 'player', iid));
+    if (this.isGuest()) {
+      this.p2p.send({ type: 'ACTION', seat: 'npc', action: { type: 'ATTACK', iid } });
+      return;
+    }
+    this.executeAttack(this.mySeat(), iid);
+  }
+
+  executeAttack(seat: Seat, iid: number): void {
+    this.mutate((s) => playTechnique(s, seat, iid));
   }
 
   /** 結束戰鬥階段：先結算並顯示結果，依節奏停頓後換手 */
   endCombatPhase(): void {
     if (!this.playerCanAct()) return;
+    if (this.isGuest()) {
+      this.p2p.send({ type: 'ACTION', seat: 'npc', action: { type: 'END_COMBAT' } });
+      return;
+    }
+    this.executeEndCombat();
+  }
 
+  executeEndCombat(): void {
     const s = this._state();
     if (s.phase !== 'combat') return;
 
@@ -267,10 +430,11 @@ export class GameStore {
 
     if (s.winner) return;
 
+    const actingSeat = s.activeSeat;
     setTimeout(
       () => {
         const cur = this._state();
-        if (cur.winner || cur.activeSeat !== 'player') return;
+        if (cur.winner || cur.activeSeat !== actingSeat) return;
         clearCombat(cur);
         endTurnFully(cur);
         this.publish(cur);
@@ -283,6 +447,14 @@ export class GameStore {
   /** 直接結束整個回合（主要階段也能用） */
   endTurn(): void {
     if (!this.playerCanAct()) return;
+    if (this.isGuest()) {
+      this.p2p.send({ type: 'ACTION', seat: 'npc', action: { type: 'END_TURN' } });
+      return;
+    }
+    this.executeEndTurn();
+  }
+
+  executeEndTurn(): void {
     this.mutate((s) => endTurnFully(s));
   }
 
@@ -295,17 +467,18 @@ export class GameStore {
     return card(defId).quest;
   }
 
-  /** 這張手牌現在能不能出 */
+  /** 這張手牌現在能不能出（針對我方手牌） */
   canPlay(iid: number): boolean {
     if (!this.playerCanAct()) return false;
     const s = this._state();
-    const inst = s.sides.player.hand.find((c) => c.iid === iid);
+    const seat = this.mySeat();
+    const inst = s.sides[seat].hand.find((c) => c.iid === iid);
     if (!inst) return false;
 
     const def = card(inst.defId);
 
     if (s.phase === 'combat') {
-      return def.kind === 'technique' && techniquePlayability(s, 'player', iid).ok;
+      return def.kind === 'technique' && techniquePlayability(s, seat, iid).ok;
     }
     if (s.phase !== 'main') return false;
 
@@ -314,14 +487,15 @@ export class GameStore {
 
   /** 主要階段的可出牌判斷（與 engine.playCard 的檢查保持一致） */
   private mainPhasePlayable(s: GameState, inst: CardInstance): boolean {
+    const seat = this.mySeat();
     const def = card(inst.defId);
-    const side = s.sides.player;
+    const side = s.sides[seat];
 
-    if (!canPlayWithCooldown(s, 'player', inst.defId)) return false;
+    if (!canPlayWithCooldown(s, seat, inst.defId)) return false;
 
     if (def.kind === 'technique') {
       if (!def.chant || side.chantsUsedThisTurn >= RULES.chantsPerTurn) return false;
-      const chantCost = Math.max(0, def.chant.cost + modifier(s, 'player', 'cost'));
+      const chantCost = Math.max(0, def.chant.cost + modifier(s, seat, 'cost'));
       return side.life.filter((l) => !l.tapped).length >= chantCost;
     }
 
@@ -336,7 +510,7 @@ export class GameStore {
       if (used >= (limits[slot] ?? 1)) return false;
     }
 
-    let cost = Math.max(0, def.cost + modifier(s, 'player', 'cost'));
+    let cost = Math.max(0, def.cost + modifier(s, seat, 'cost'));
     if (side.freeNextCards.includes(def.id)) cost = 0;
     if (side.life.filter((l) => !l.tapped).length < cost) return false;
 
@@ -390,8 +564,60 @@ export class GameStore {
   }
 
   // ─────────────────────────────────────────────
-  // 內部
+  // 內部與 P2P 通訊處理
   // ─────────────────────────────────────────────
+
+  private handleP2PMessage(msg: P2PMessage): void {
+    if (msg.type === 'GUEST_HELLO') {
+      this.npcChar.set(msg.hero);
+    } else if (msg.type === 'GAME_START') {
+      this.initAsP2PGuest(msg.seed, msg.hostHero, msg.guestHero, msg.state);
+    } else if (msg.type === 'ACTION') {
+      if (this.isHost()) {
+        this.handleGuestAction(msg.action);
+      }
+    } else if (msg.type === 'SYNC_STATE') {
+      if (this.isGuest()) {
+        this.applyRemoteState(msg.state, msg.popups, msg.combatSeq);
+      }
+    } else if (msg.type === 'RESTART') {
+      if (this.isGuest()) {
+        this.applyRemoteState(msg.state);
+      }
+    }
+  }
+
+  private handleGuestAction(action: GameAction): void {
+    switch (action.type) {
+      case 'PLAY':
+        this.executePlay('npc', action.iid);
+        break;
+      case 'CHANT':
+        this.executeChant('npc', action.iid);
+        break;
+      case 'ATTACK':
+        this.executeAttack('npc', action.iid);
+        break;
+      case 'BURST':
+        this.executeBurst(action.use);
+        break;
+      case 'ENTER_COMBAT':
+        this.executeEnterCombat();
+        break;
+      case 'END_COMBAT':
+        this.executeEndCombat();
+        break;
+      case 'END_TURN':
+        this.executeEndTurn();
+        break;
+      case 'CHOOSE_CARD':
+        this.executeChooseCard(action.iid);
+        break;
+      case 'CHOOSE_LIFE':
+        this.executeChooseLife(action.iid);
+        break;
+    }
+  }
 
   private static randomSeed(): number {
     return Math.floor(Math.random() * 0xffffffff) >>> 0;
@@ -409,14 +635,11 @@ export class GameStore {
     this.afterChange();
   }
 
-  /** 用新參照發布，觸發 Signals 更新；同時比對新增日誌以產生飄字 */
+  /** 用新參照發布，觸發 Signals 更新；同時比對新增日誌以產生飄字，若身為房主則廣播狀態 */
   private publish(s: GameState): void {
     const fresh = s.log.slice(this.logCursor);
     this.logCursor = s.log.length;
 
-    // sides 也做淺拷貝。內部的陣列仍是同一份（引擎就地修改），
-    // 但物件參考會變，這樣依賴 sides.player / sides.npc 的 computed
-    // 才會因為 Object.is 不相等而正確通知下游。
     this._state.set({
       ...s,
       sides: {
@@ -426,16 +649,27 @@ export class GameStore {
     });
 
     if (fresh.length > 0) this.emitFromLog(fresh);
+
+    if (this.isHost()) {
+      this.p2p.send({
+        type: 'SYNC_STATE',
+        state: s,
+        popups: this.popups(),
+        combatSeq: this.combatSeq(),
+      });
+    }
   }
 
   private afterChange(): void {
     const s = this._state();
     if (s.winner) return;
-    if (s.activeSeat === 'npc') this.runNpcSequence();
+    if (this.gameMode() === 'solo' && s.activeSeat === 'npc') {
+      this.runNpcSequence();
+    }
   }
 
   /**
-   * NPC 回合分步執行：每個階段之間留一段延遲，
+   * NPC 回合分步執行（僅在單機模式生效）：每個階段之間留一段延遲，
    * 讓玩家能從日誌與場面看到對手逐步做事，而不是瞬間跳完。
    * 延遲長度由 npcSpeed 設定控制。
    */
