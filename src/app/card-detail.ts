@@ -72,12 +72,6 @@ import { CARD_KIND_LABEL, EQUIP_LABEL, TECHNIQUE_LABEL } from './game/types';
             </div>
           }
 
-          @if (cooldownRemaining() !== undefined) {
-            <div class="mt-2 rounded border border-emerald-500/60 bg-emerald-950/50 px-2 py-1 text-[11px] font-bold text-emerald-200 shadow">
-              ⏳ 冷卻進度：剩餘 <b class="text-amber-300">{{ cooldownRemaining() }}</b> 回合
-            </div>
-          }
-
           @if (def()!.cooldown; as cd) {
             <div class="mt-2 rounded border border-emerald-600/40 bg-emerald-950/30 px-2 py-1 text-[10px] text-emerald-200">
               冷卻特性：使用後進入冷卻區計時 {{ cd }} 回合{{ def()!.storage ? '（儲存上限 ' + def()!.storage + ' 張）' : '' }}。{{ def()!.cooldownBuff?.text ?? '' }}
@@ -135,8 +129,6 @@ export class CardDetailComponent {
   private readonly sanitizer = inject(DomSanitizer);
 
   readonly inst = input<CardInstance | null>(null);
-  /** 冷卻中剩餘回合數（有值時顯示進度提示條） */
-  readonly cooldownRemaining = input<number | undefined>(undefined);
   /** 有值就顯示動作按鈕（例如「使用這張卡」「出招」） */
   readonly actionLabel = input('');
   readonly actionEnabled = input(true);

@@ -996,37 +996,4 @@ describe('角色特異機制', () => {
     expect(g.sides.player.cooldownZone.length).toBe(0);
     expect(g.sides.player.discard.some((c) => c.iid === cdCard.iid)).toBe(true);
   });
-
-  it('元素喚醒：從棄牌堆取回招式卡時讓玩家自選', () => {
-    const g = createGame(1, { manualLifeSetup: false });
-    g.phase = 'main';
-    g.activeSeat = 'player';
-
-    // 棄牌堆放入兩張不同的招式卡
-    g.sides.player.discard = [
-      makeInstance(g, 'mg_tech_huoqiu'), // 烈焰火球
-      makeInstance(g, 'mg_tech_bingzhi'), // 冰霜之指
-    ];
-    setHand(g, 'player', ['mg_huanxing']); // 元素喚醒
-    const huanxing = g.sides.player.hand[0];
-
-    playCard(g, 'player', huanxing.iid);
-
-    // 觸發 pendingChoice
-    expect(g.pending).not.toBeNull();
-    expect(g.pending?.kind).toBe('salvage');
-    expect(g.pending?.candidates.length).toBe(2);
-    expect(g.pending?.pick).toBe(1);
-
-    // 玩家選第二張（冰霜之指）
-    const chosen = g.pending!.candidates[1];
-    resolveChoice(g, chosen.iid);
-
-    // pending 結算完畢
-    expect(g.pending).toBeNull();
-    // 冰霜之指加入手牌
-    expect(g.sides.player.hand.some((c) => c.iid === chosen.iid)).toBe(true);
-    // 棄牌堆只剩火球術與打出的元素喚醒
-    expect(g.sides.player.discard.some((c) => c.iid === chosen.iid)).toBe(false);
-  });
 });

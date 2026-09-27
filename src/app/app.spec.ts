@@ -163,93 +163,29 @@ describe('App', () => {
     }
   });
 
-  it('牌堆區置中僅保留 [牌組]、[怒氣]、[棄牌]、[LEVEL] 4 個牌堆', async () => {
+  it('雙方資源堆疊中，冷卻區位於棄牌堆右邊、等級堆左邊', async () => {
     const fixture = TestBed.createComponent(App);
     await fixture.whenStable();
 
     const el = fixture.nativeElement as HTMLElement;
-    const centerContainers = el.querySelectorAll('.pile-stacks-center');
-    expect(centerContainers.length).toBe(2);
+    const pileContainers = el.querySelectorAll('.flex.shrink-0.items-center.justify-center');
+    expect(pileContainers.length).toBeGreaterThanOrEqual(2);
 
-    for (const container of Array.from(centerContainers)) {
+    for (const container of Array.from(pileContainers)) {
       const stacks = Array.from(container.querySelectorAll('.pile-stack'));
-      expect(stacks.length).toBe(4);
+      const classNames = stacks.map((s) => Array.from(s.classList).find((c) => c.startsWith('pile-stack--')) ?? '');
 
-      const labels = stacks.map((s) => s.querySelector('span:last-child')?.textContent?.trim());
-      expect(labels).toEqual(['牌組', '怒氣', '棄牌', 'LEVEL']);
+      const discardIdx = classNames.findIndex((c) => c.includes('discard'));
+      const cooldownIdx = classNames.findIndex((c) => c.includes('cooldown'));
+      const levelIdx = classNames.findIndex((c) => c.includes('level'));
+
+      expect(discardIdx, '必須有棄牌堆').toBeGreaterThanOrEqual(0);
+      expect(cooldownIdx, '必須有冷卻區').toBeGreaterThanOrEqual(0);
+      expect(levelIdx, '必須有等級堆').toBeGreaterThanOrEqual(0);
+
+      expect(cooldownIdx, '冷卻區必須在棄牌堆右邊').toBe(discardIdx + 1);
+      expect(levelIdx, '等級堆必須在冷卻區右邊（冷卻區在等級堆左邊）').toBe(cooldownIdx + 1);
     }
-  });
-
-  it('冷卻區與詠唱區位於牌堆區最左側，且僅在該區域有牌時才顯示', async () => {
-    const fixture = TestBed.createComponent(App);
-    const app = fixture.componentInstance;
-    await fixture.whenStable();
-
-    const el = fixture.nativeElement as HTMLElement;
-    const leftContainers = el.querySelectorAll('.pile-stacks-left');
-    expect(leftContainers.length).toBe(2);
-
-    // 初始狀態下雙方冷卻與詠唱皆為空，不應渲染任何按鈕
-    for (const container of Array.from(leftContainers)) {
-      expect(container.children.length).toBe(0);
-    }
-
-    // 當我方有冷卻卡與詠唱卡時，最左側容器顯示這兩者
-    (app.store as any)._state.update((s: any) => ({
-      ...s,
-      sides: {
-        ...s.sides,
-        player: {
-          ...s.sides.player,
-          cooldownZone: [
-            { card: { iid: 888, defId: 'mg_tech_huoqiu' }, counter: 1, maxCounter: 3 },
-          ],
-          chantedCards: [
-            { iid: 889, defId: 'mg_secret_fuzhou' },
-          ],
-        },
-      },
-    }));
-    fixture.detectChanges();
-    await fixture.whenStable();
-
-    const playerLeft = el.querySelectorAll('.pile-area')[1].querySelector('.pile-stacks-left');
-    expect(playerLeft?.querySelector('.pile-stack--cooldown')).toBeTruthy();
-    expect(playerLeft?.querySelector('.pile-stack--chant')).toBeTruthy();
-  });
-
-  it('冷卻區卡牌能正確取得並顯示剩餘回合數', async () => {
-    const fixture = TestBed.createComponent(App);
-    const app = fixture.componentInstance;
-    await fixture.whenStable();
-
-    (app.store as any)._state.update((s: any) => ({
-      ...s,
-      sides: {
-        ...s.sides,
-        player: {
-          ...s.sides.player,
-          cooldownZone: [
-            { card: { iid: 888, defId: 'mg_tech_huoqiu' }, counter: 1, maxCounter: 3 },
-          ],
-        },
-      },
-    }));
-    fixture.detectChanges();
-    await fixture.whenStable();
-
-    // 剩餘回合 = maxCounter (3) - counter (1) = 2
-    expect(app.getCooldownRemaining('player', 888)).toBe(2);
-
-    // 打開冷卻區檢視彈窗
-    app.openPile('player', 'cooldown');
-    fixture.detectChanges();
-    await fixture.whenStable();
-
-    const el = fixture.nativeElement as HTMLElement;
-    const modal = el.querySelector('.popover');
-    expect(modal).toBeTruthy();
-    expect(modal?.textContent).toContain('剩餘 2 回合');
   });
 
   it('日誌具有分類過濾（全部/戰鬥/任務/系統）與展開收合功能', async () => {
@@ -293,5 +229,19 @@ describe('App', () => {
 
     app.openPile('player', 'discard');
     expect(app.pileHidden()).toBe(false);
+  });
+
+  it('雙方資源堆疊中正確顯示任務牌組堆疊與張數', async () => {
+    const fixture = TestBed.createComponent(App);
+    await fixture.whenStable();
+
+    const el = fixture.nativeElement as HTMLElement;
+    const questStacks = el.querySelectorAll('.pile-stack--quest');
+    expect(questStacks.length).toBe(2);
+
+    for (const stack of Array.from(questStacks)) {
+      expect(stack.textContent).toContain('任務');
+      expect(stack.getAttribute('title')).toContain('不可查看');
+    }
   });
 });

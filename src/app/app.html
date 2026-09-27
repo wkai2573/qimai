@@ -120,6 +120,17 @@
             <span class="text-[10px] text-amber-300/80">Lv{{ opponentSide().level }}</span>
           </div>
 
+          @if (opponentSide().chantedCards.length > 0) {
+            <button
+              type="button"
+              class="btn btn--sky btn--sm !px-1.5 !py-0.5 text-[10px]"
+              title="查看對手已詠唱卡片"
+              (click)="openPile(store.opponentSeat(), 'chant')"
+            >
+              已詠唱({{ opponentSide().chantedCards.length }})
+            </button>
+          }
+
           <!-- 生命區＝血量：每重構一次少一張，歸零即敗北 -->
           <div class="flex items-center gap-1">
             <span class="shrink-0 text-[9px] tracking-wider text-slate-500">生命</span>
@@ -184,84 +195,76 @@
       </div>
 
       <!-- 對手資源堆疊 -->
-      <div class="pile-area relative flex min-h-[54px] shrink-0 items-center justify-center">
-        <!-- 最左側：冷卻區與詠唱區（僅在有牌時顯示） -->
-        <div class="pile-stacks-left absolute left-0 z-10 flex items-center gap-2 sm:gap-3">
-          @if (opponentSide().cooldownZone.length > 0) {
-            <button
-              type="button"
-              class="pile-stack pile-stack--cooldown pile-stack--clickable"
-              title="點擊查看對手冷卻區內容（剩餘冷卻回合）"
-              (click)="openPile(store.opponentSeat(), 'cooldown')"
-            >
-              <span class="text-sm font-bold tabular-nums text-emerald-300">{{ opponentSide().cooldownZone.length }}</span>
-              <span class="text-[9px] text-slate-500">冷卻</span>
-            </button>
-          }
-          @if (opponentSide().chantedCards.length > 0) {
-            <button
-              type="button"
-              class="pile-stack pile-stack--chant pile-stack--clickable"
-              title="點擊查看對手已詠唱卡片"
-              (click)="openPile(store.opponentSeat(), 'chant')"
-            >
-              <span class="text-sm font-bold tabular-nums text-sky-300">{{ opponentSide().chantedCards.length }}</span>
-              <span class="text-[9px] text-slate-500">詠唱</span>
-            </button>
-          }
+      <div class="flex shrink-0 items-center justify-center gap-2 sm:gap-3">
+        <!-- 牌組：內容是隱藏資訊，不提供檢視 -->
+        <div
+          class="pile-stack pile-stack--deck"
+          [class.pile-stack--empty]="opponentSide().deck.length === 0"
+          [title]="
+            opponentSide().deck.length <= 5
+              ? '牌組快抽完了，抽完會觸發重構並扣掉一張生命卡'
+              : '牌組剩 ' + opponentSide().deck.length + ' 張（內容為隱藏資訊）'
+          "
+        >
+          <span
+            class="text-sm font-bold tabular-nums"
+            [class]="opponentSide().deck.length <= 5 ? 'text-amber-300' : 'text-sky-300'"
+            >{{ opponentSide().deck.length }}</span
+          >
+          <span class="text-[9px] text-slate-500">牌組</span>
         </div>
 
-        <!-- 置中：僅 [牌組] [怒氣] [棄牌] [LEVEL] 4個牌堆 -->
-        <div class="pile-stacks-center flex items-center justify-center gap-2 sm:gap-3">
-          <!-- 牌組：內容是隱藏資訊，不提供檢視 -->
-          <div
-            class="pile-stack pile-stack--deck"
-            [class.pile-stack--empty]="opponentSide().deck.length === 0"
-            [title]="
-              opponentSide().deck.length <= 5
-                ? '牌組快抽完了，抽完會觸發重構並扣掉一張生命卡'
-                : '牌組剩 ' + opponentSide().deck.length + ' 張（內容為隱藏資訊）'
-            "
-          >
-            <span
-              class="text-sm font-bold tabular-nums"
-              [class]="opponentSide().deck.length <= 5 ? 'text-amber-300' : 'text-sky-300'"
-              >{{ opponentSide().deck.length }}</span
-            >
-            <span class="text-[9px] text-slate-500">牌組</span>
-          </div>
+        <!-- 怒氣區：內容為隱藏資訊，不可查看 -->
+        <div
+          class="pile-stack pile-stack--anger"
+          [class.pile-stack--empty]="opponentSide().anger.length === 0"
+          [title]="'對手怒氣剩 ' + opponentSide().anger.length + ' 點（內容為隱藏資訊，不可查看）'"
+        >
+          <span class="text-sm font-bold tabular-nums text-rose-300">{{ opponentSide().anger.length }}</span>
+          <span class="text-[9px] text-slate-500">怒氣</span>
+        </div>
 
-          <!-- 怒氣區：內容為隱藏資訊，不可查看 -->
-          <div
-            class="pile-stack pile-stack--anger"
-            [class.pile-stack--empty]="opponentSide().anger.length === 0"
-            [title]="'對手怒氣剩 ' + opponentSide().anger.length + ' 點（內容為隱藏資訊，不可查看）'"
-          >
-            <span class="text-sm font-bold tabular-nums text-rose-300">{{ opponentSide().anger.length }}</span>
-            <span class="text-[9px] text-slate-500">怒氣</span>
-          </div>
+        <button
+          type="button"
+          class="pile-stack pile-stack--discard pile-stack--clickable"
+          [class.pile-stack--empty]="opponentSide().discard.length === 0"
+          title="點擊查看棄牌區內容"
+          (click)="openPile(store.opponentSeat(), 'discard')"
+        >
+          <span class="text-sm font-bold tabular-nums text-slate-300">{{ opponentSide().discard.length }}</span>
+          <span class="text-[9px] text-slate-500">棄牌</span>
+        </button>
 
-          <button
-            type="button"
-            class="pile-stack pile-stack--discard pile-stack--clickable"
-            [class.pile-stack--empty]="opponentSide().discard.length === 0"
-            title="點擊查看棄牌區內容"
-            (click)="openPile(store.opponentSeat(), 'discard')"
-          >
-            <span class="text-sm font-bold tabular-nums text-slate-300">{{ opponentSide().discard.length }}</span>
-            <span class="text-[9px] text-slate-500">棄牌</span>
-          </button>
+        <button
+          type="button"
+          class="pile-stack pile-stack--cooldown pile-stack--clickable"
+          [class.pile-stack--empty]="opponentSide().cooldownZone.length === 0"
+          title="點擊查看對手冷卻區內容"
+          (click)="openPile(store.opponentSeat(), 'cooldown')"
+        >
+          <span class="text-sm font-bold tabular-nums text-emerald-300">{{ opponentSide().cooldownZone.length }}</span>
+          <span class="text-[9px] text-slate-500">冷卻</span>
+        </button>
 
-          <button
-            type="button"
-            class="pile-stack pile-stack--level pile-stack--clickable"
-            [class.pile-stack--empty]="opponentSide().levelZone.length === 0"
-            title="點擊查看對手已達成的任務"
-            (click)="openPile(store.opponentSeat(), 'level')"
-          >
-            <span class="text-sm font-bold tabular-nums text-amber-300">Lv{{ opponentSide().level }}</span>
-            <span class="text-[9px] text-slate-500">LEVEL</span>
-          </button>
+        <button
+          type="button"
+          class="pile-stack pile-stack--level pile-stack--clickable"
+          [class.pile-stack--empty]="opponentSide().levelZone.length === 0"
+          title="點擊查看對手已達成的任務"
+          (click)="openPile(store.opponentSeat(), 'level')"
+        >
+          <span class="text-sm font-bold tabular-nums text-amber-300">Lv{{ opponentSide().level }}</span>
+          <span class="text-[9px] text-slate-500">達成</span>
+        </button>
+
+        <!-- 任務牌組：內容為隱藏資訊，不可查看 -->
+        <div
+          class="pile-stack pile-stack--quest"
+          [class.pile-stack--empty]="opponentSide().questDeck.length === 0"
+          [title]="'任務牌組剩 ' + opponentSide().questDeck.length + ' 張（內容為隱藏資訊，不可查看）'"
+        >
+          <span class="text-sm font-bold tabular-nums text-amber-400">{{ opponentSide().questDeck.length }}</span>
+          <span class="text-[9px] text-slate-500">任務</span>
         </div>
       </div>
 
@@ -352,83 +355,75 @@
       <div class="duel-line shrink-0"></div>
 
       <!-- 我方資源堆疊 -->
-      <div class="pile-area relative flex min-h-[54px] shrink-0 items-center justify-center">
-        <!-- 最左側：冷卻區與詠唱區（僅在有牌時顯示） -->
-        <div class="pile-stacks-left absolute left-0 z-10 flex items-center gap-2 sm:gap-3">
-          @if (mySide().cooldownZone.length > 0) {
-            <button
-              type="button"
-              class="pile-stack pile-stack--cooldown pile-stack--clickable"
-              title="點擊查看你的冷卻區內容（剩餘冷卻回合）"
-              (click)="openPile(store.mySeat(), 'cooldown')"
-            >
-              <span class="text-sm font-bold tabular-nums text-emerald-300">{{ mySide().cooldownZone.length }}</span>
-              <span class="text-[9px] text-slate-500">冷卻</span>
-            </button>
-          }
-          @if (mySide().chantedCards.length > 0) {
-            <button
-              type="button"
-              class="pile-stack pile-stack--chant pile-stack--clickable"
-              title="點擊查看你已詠唱卡片"
-              (click)="openPile(store.mySeat(), 'chant')"
-            >
-              <span class="text-sm font-bold tabular-nums text-sky-300">{{ mySide().chantedCards.length }}</span>
-              <span class="text-[9px] text-slate-500">詠唱</span>
-            </button>
-          }
+      <div class="flex shrink-0 items-center justify-center gap-2 sm:gap-3">
+        <div
+          class="pile-stack pile-stack--deck"
+          [class.pile-stack--empty]="mySide().deck.length === 0"
+          [title]="
+            mySide().deck.length <= 5
+              ? '牌組快抽完了，抽完會觸發重構並扣掉一張生命卡'
+              : '牌組剩 ' + mySide().deck.length + ' 張（內容為隱藏資訊）'
+          "
+        >
+          <span
+            class="text-sm font-bold tabular-nums"
+            [class]="mySide().deck.length <= 5 ? 'text-amber-300' : 'text-sky-300'"
+            >{{ mySide().deck.length }}</span
+          >
+          <span class="text-[9px] text-slate-500">牌組</span>
         </div>
 
-        <!-- 置中：僅 [牌組] [怒氣] [棄牌] [LEVEL] 4個牌堆 -->
-        <div class="pile-stacks-center flex items-center justify-center gap-2 sm:gap-3">
-          <div
-            class="pile-stack pile-stack--deck"
-            [class.pile-stack--empty]="mySide().deck.length === 0"
-            [title]="
-              mySide().deck.length <= 5
-                ? '牌組快抽完了，抽完會觸發重構並扣掉一張生命卡'
-                : '牌組剩 ' + mySide().deck.length + ' 張（內容為隱藏資訊）'
-            "
-          >
-            <span
-              class="text-sm font-bold tabular-nums"
-              [class]="mySide().deck.length <= 5 ? 'text-amber-300' : 'text-sky-300'"
-              >{{ mySide().deck.length }}</span
-            >
-            <span class="text-[9px] text-slate-500">牌組</span>
-          </div>
+        <!-- 怒氣區：內容為隱藏資訊，不可查看 -->
+        <div
+          class="pile-stack pile-stack--anger"
+          [class.pile-stack--empty]="mySide().anger.length === 0"
+          [title]="'我方怒氣剩 ' + mySide().anger.length + ' 點（內容為隱藏資訊，不可查看）'"
+        >
+          <span class="text-sm font-bold tabular-nums text-rose-300">{{ mySide().anger.length }}</span>
+          <span class="text-[9px] text-slate-500">怒氣</span>
+        </div>
 
-          <!-- 怒氣區：內容為隱藏資訊，不可查看 -->
-          <div
-            class="pile-stack pile-stack--anger"
-            [class.pile-stack--empty]="mySide().anger.length === 0"
-            [title]="'我方怒氣剩 ' + mySide().anger.length + ' 點（內容為隱藏資訊，不可查看）'"
-          >
-            <span class="text-sm font-bold tabular-nums text-rose-300">{{ mySide().anger.length }}</span>
-            <span class="text-[9px] text-slate-500">怒氣</span>
-          </div>
+        <button
+          type="button"
+          class="pile-stack pile-stack--discard pile-stack--clickable"
+          [class.pile-stack--empty]="mySide().discard.length === 0"
+          title="點擊查看棄牌區內容"
+          (click)="openPile(store.mySeat(), 'discard')"
+        >
+          <span class="text-sm font-bold tabular-nums text-slate-300">{{ mySide().discard.length }}</span>
+          <span class="text-[9px] text-slate-500">棄牌</span>
+        </button>
 
-          <button
-            type="button"
-            class="pile-stack pile-stack--discard pile-stack--clickable"
-            [class.pile-stack--empty]="mySide().discard.length === 0"
-            title="點擊查看棄牌區內容"
-            (click)="openPile(store.mySeat(), 'discard')"
-          >
-            <span class="text-sm font-bold tabular-nums text-slate-300">{{ mySide().discard.length }}</span>
-            <span class="text-[9px] text-slate-500">棄牌</span>
-          </button>
+        <button
+          type="button"
+          class="pile-stack pile-stack--cooldown pile-stack--clickable"
+          [class.pile-stack--empty]="mySide().cooldownZone.length === 0"
+          title="點擊查看你的冷卻區內容"
+          (click)="openPile(store.mySeat(), 'cooldown')"
+        >
+          <span class="text-sm font-bold tabular-nums text-emerald-300">{{ mySide().cooldownZone.length }}</span>
+          <span class="text-[9px] text-slate-500">冷卻</span>
+        </button>
 
-          <button
-            type="button"
-            class="pile-stack pile-stack--level pile-stack--clickable"
-            [class.pile-stack--empty]="mySide().levelZone.length === 0"
-            title="點擊查看你已達成的任務"
-            (click)="openPile(store.mySeat(), 'level')"
-          >
-            <span class="text-sm font-bold tabular-nums text-amber-300">Lv{{ mySide().level }}</span>
-            <span class="text-[9px] text-slate-500">LEVEL</span>
-          </button>
+        <button
+          type="button"
+          class="pile-stack pile-stack--level pile-stack--clickable"
+          [class.pile-stack--empty]="mySide().levelZone.length === 0"
+          title="點擊查看你已達成的任務"
+          (click)="openPile(store.mySeat(), 'level')"
+        >
+          <span class="text-sm font-bold tabular-nums text-amber-300">Lv{{ mySide().level }}</span>
+          <span class="text-[9px] text-slate-500">達成</span>
+        </button>
+
+        <!-- 任務牌組：內容為隱藏資訊，不可查看 -->
+        <div
+          class="pile-stack pile-stack--quest"
+          [class.pile-stack--empty]="mySide().questDeck.length === 0"
+          [title]="'任務牌組剩 ' + mySide().questDeck.length + ' 張（內容為隱藏資訊，不可查看）'"
+        >
+          <span class="text-sm font-bold tabular-nums text-amber-400">{{ mySide().questDeck.length }}</span>
+          <span class="text-[9px] text-slate-500">任務</span>
         </div>
       </div>
 
@@ -453,6 +448,17 @@
               >行動區</span
             >
           </div>
+
+          @if (mySide().chantedCards.length > 0) {
+            <button
+              type="button"
+              class="btn btn--sky btn--sm !px-1.5 !py-0.5 text-[10px]"
+              title="查看你已詠唱卡片"
+              (click)="openPile(store.mySeat(), 'chant')"
+            >
+              已詠唱({{ mySide().chantedCards.length }})
+            </button>
+          }
 
           <!-- 生命區＝血量：每重構一次少一張，歸零即敗北 -->
           <div class="flex items-center gap-1">
@@ -786,21 +792,15 @@
           } @else {
             <div class="flex flex-wrap justify-center gap-2">
               @for (c of pileCards(); track c.iid) {
-                <div class="anim-deal flex flex-col items-center">
+                <div class="anim-deal">
                   <app-card-view
                     [inst]="c"
                     [playable]="false"
                     [showcase]="true"
                     [tooltip]="true"
-                    [cooldownRemaining]="pv.kind === 'cooldown' ? getCooldownRemaining(pv.seat, c.iid) : undefined"
                     size="sm"
                     (hoverInfo)="onCardHover($event)"
                   />
-                  @if (pv.kind === 'cooldown') {
-                    <span class="mt-1 rounded bg-emerald-950/80 px-1.5 py-0.5 text-[10px] font-bold text-emerald-300 ring-1 ring-emerald-500/40">
-                      剩餘 {{ getCooldownRemaining(pv.seat, c.iid) }} 回合
-                    </span>
-                  }
                 </div>
               }
             </div>
@@ -838,10 +838,6 @@
 
           @if (pc.kind === 'search') {
             <p class="mt-2 text-center text-[10px] text-slate-500">沒選到的卡會進入棄牌區</p>
-          } @else if (pc.kind === 'salvage') {
-            <p class="mt-2 text-center text-[10px] text-slate-500">選擇的卡會加入手牌</p>
-          } @else if (pc.kind === 'handToAnger') {
-            <p class="mt-2 text-center text-[10px] text-slate-500">選擇的卡會置於怒氣區底</p>
           } @else {
             <p class="mt-2 text-center text-[10px] text-slate-500">
               這 3 張就是你的血量，也是支付費用的來源
@@ -899,7 +895,7 @@
   <!-- ══════════ 卡片詳細浮層（滑鼠移入時顯示） ══════════ -->
   @if (tooltipCard(); as tt) {
     <div class="card-tooltip" [style.left.px]="tt.x" [style.top.px]="tt.y">
-      <app-card-detail [inst]="tt.inst" [cooldownRemaining]="tt.cooldownRemaining" />
+      <app-card-detail [inst]="tt.inst" />
     </div>
   }
 
