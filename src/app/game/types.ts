@@ -46,11 +46,12 @@ export const TECHNIQUE_LABEL: Record<TechniqueTier, string> = {
 };
 
 /** 裝備部位 */
-export type EquipSlot = 'weapon' | 'helmet' | 'glove' | 'boots' | 'accessory';
+export type EquipSlot = 'weapon' | 'armor' | 'helmet' | 'glove' | 'boots' | 'accessory';
 
 /** 各部位可裝備的張數上限：飾品可裝 2 張，其餘各 1 張 */
 export const EQUIP_LIMITS: Record<EquipSlot, number> = {
   weapon: 1,
+  armor: 1,
   helmet: 1,
   glove: 1,
   boots: 1,
@@ -59,6 +60,7 @@ export const EQUIP_LIMITS: Record<EquipSlot, number> = {
 
 export const EQUIP_LABEL: Record<EquipSlot, string> = {
   weapon: '武器',
+  armor: '衣服',
   helmet: '頭盔',
   glove: '手套',
   boots: '鞋子',
@@ -93,13 +95,19 @@ export const RULES = {
 // 效果系統（資料驅動）
 // ─────────────────────────────────────────────
 
-/** 卡牌篩選條件，用於檢索與回收 */
+/** 卡牌篩選條件，用於檢索、回收與「只加成特定卡」的增益 */
 export interface CardFilter {
   kind?: CardKind;
   tier?: TechniqueTier;
+  /** 招式階級符合其中任一者 */
+  tiers?: TechniqueTier[];
   slot?: EquipSlot;
   /** 僅限名稱包含此字串者 */
   nameContains?: string;
+  /** 名稱包含其中任一字串者（例如「火」或「電」） */
+  nameAny?: string[];
+  /** 僅限指定的卡 */
+  id?: string;
 }
 
 /**
@@ -124,7 +132,22 @@ export type ModifierTarget =
   | 'extraGuard' // 防禦判定時額外翻開的張數
   | 'chantDamage' // 詠唱傷害加成
   | 'damageReduction' // 減免傷害
-  | 'immuneTrickSecret'; // 免疫特技與密技傷害與效果
+  | 'immuneTrickSecret' // 免疫特技與密技傷害與效果
+  | 'chantCostFixed' // 詠唱費用改為固定值（取最小者）
+  | 'extraChant' // 每回合額外可詠唱的次數
+  | 'freeTechnique'; // 招式不需要費用（包括額外費用），大於 0 即生效
+
+/** modify 效果與增益共用的限定條件 */
+export interface ModifyExtras {
+  /** 只作用於符合條件的卡（例如只加成名稱含「火」的招式） */
+  filter?: CardFilter;
+  /** 「此回合其他…」：不作用在發動這個效果的那張卡上 */
+  excludeSelf?: boolean;
+  /** 只在條件成立時生效（例如事件區有我方事件） */
+  condition?: Condition;
+  /** 用過一次就消失（「下一張…費用 -1」） */
+  once?: boolean;
+}
 
 /**
  * 效果。資料驅動的核心：新增卡片只要組合這些既有效果，不必改引擎。
@@ -143,7 +166,7 @@ export type Effect =
   /** 隨機棄 N 張手牌 */
   | { type: 'discardHand'; n: number }
   /** 變更數值，持續到指定時機 */
-  | { type: 'modify'; target: ModifierTarget; amount: number; expiry: ExpiryPoint }
+  | ({ type: 'modify'; target: ModifierTarget; amount: number; expiry: ExpiryPoint } & ModifyExtras)
   /** 戰鬥時額外翻 N 張防禦卡 */
   | { type: 'extraGuard'; n: number; expiry: ExpiryPoint }
   /** 等級 +N */
@@ -164,8 +187,66 @@ export type Effect =
   | { type: 'advanceCooldowns'; n: number }
   /** 【氣功】立即完成 1 張冷卻卡送入棄牌區 */
   | { type: 'finishCooldown' }
-  /** 條件效果：when 成立時才套用 effect。連招加成、密奧義追加效果都靠這個 */
-  | { type: 'conditional'; when: Condition; effect: Effect };
+  /** 條件效果：when 成立時才套用 effect，否則套用 otherwise。連招加成、密奧義追加效果都靠這個 */
+  | { type: 'conditional'; when: Condition; effect: Effect; otherwise?: Effect }
+
+  // ── 事件區與持續時間指示物 ──
+  /** 在事件區的事件卡上放置 N 個持續時間指示物（不分持有者） */
+  | { type: 'addEventCounters'; n: number }
+  /** 移除我方事件上的 N 個持續時間指示物 */
+  | { type: 'removeOwnEventCounters'; n: number }
+
+  // ── 區域移動 ──
+  /** 捨棄牌組頂 N 張（進棄牌區，不算受到傷害） */
+  | { type: 'millDiscard'; n: number }
+  /** 捨棄我方怒氣區頂 N 張（不足則全部），all = 全部 */
+  | { type: 'discardAnger'; n: number | 'all' }
+  /** 棄牌區頂 N 張放到怒氣區，之後將怒氣區洗牌 */
+  | { type: 'discardToAnger'; n: number }
+  /** 棄牌區符合條件的卡全部放回牌組洗牌；then 決定之後依張數 X 做什麼 */
+  | { type: 'reshuffleDiscard'; filter: CardFilter; then?: 'recoverX' | 'boostSelf' }
+  /** 抽 X 張，X = 棄牌區符合條件的張數（可設上限） */
+  | { type: 'drawPerDiscard'; filter: CardFilter; max?: number }
+  /** 捨棄怒氣區 X 張，X = 棄牌區符合條件的張數 */
+  | { type: 'discardAngerPerDiscard'; filter: CardFilter }
+  /** 自選捨棄 N 張手牌 */
+  | { type: 'discardChosen'; n: number }
+  /** 捨棄全部手牌 */
+  | { type: 'discardAllHand' }
+  /** 可以捨棄 1 張手牌，若這麼做則從棄牌區取回 1 張符合條件的卡 */
+  | { type: 'discardToSalvage'; filter: CardFilter }
+  /** 從怒氣區頂取 N 張加入手牌，然後自選捨棄 N 張手牌 */
+  | { type: 'angerToHandThenDiscard'; n: number }
+  /** 從棄牌區取回 X 張，X = 離開事件區時這張卡上的指示物數（只在 onLeave 使用） */
+  | { type: 'salvageByCounters'; filter: CardFilter }
+
+  // ── 詠唱 ──
+  /** 從棄牌區選 1 張有詠唱特性的卡詠唱打出（仍需支付詠唱費用，不佔每回合詠唱次數） */
+  | { type: 'chantFromDiscard' }
+  /** 【完全詠唱】獲得本回合打出招式的全部詠唱效果，並額外詠唱此卡 */
+  | { type: 'gainPlayedChants' }
+  /** 【冰菱城下】捨棄怒氣 X 張（X = 我方卡上的指示物總數），獲得其中符合條件招式的詠唱效果，並額外詠唱此卡 */
+  | { type: 'discardAngerByCountersGainChant'; filter: CardFilter }
+
+  // ── 裝備 ──
+  /** 橫置我方 N 張未橫置的裝備 */
+  | { type: 'tapEquipment'; n: number }
+  /** 可以不支付費用打出手牌中 1 張裝備（須符合等級與部位） */
+  | { type: 'freeEquip' }
+  /** 重置我方 N 張橫置的生命卡 */
+  | { type: 'untapLife'; n: number }
+  /** 此擊傷害 +X，X = 我方橫置狀態的裝備張數 */
+  | { type: 'boostSelfPerTappedEquipment' }
+
+  // ── 影響對手 ──
+  /** 對手選擇：捨棄手中 1 張招式，或捨棄牌組頂 N 張 */
+  | { type: 'opponentDiscardTechOrMill'; mill: number }
+  /** 雙方各抽 N 張，然後各自選 1 張手牌放到自己怒氣區底 */
+  | { type: 'allDrawThenAngerBottom'; draw: number }
+  /** 對手抽牌直到手牌 handSize 張，然後對手選自己 N 張手牌放到其怒氣區底 */
+  | { type: 'opponentDrawToThenAngerBottom'; handSize: number; n: number }
+  /** 選擇對手棄牌區 N 張放到其怒氣區底 */
+  | { type: 'opponentDiscardToAngerBottom'; n: number };
 
 /** 條件判斷，用於連招、密奧義解放、裝備門檻 */
 export type Condition =
@@ -183,7 +264,23 @@ export type Condition =
   /** 冷卻區卡牌數量達到 N */
   | { type: 'cooldownCountAtLeast'; n: number }
   /** 本回合已有詠唱過招式 */
-  | { type: 'hasChantedThisTurn' };
+  | { type: 'hasChantedThisTurn' }
+  /** 事件區有持有者為我方的事件（指定 defId 時必須是那張卡） */
+  | { type: 'ownEventInZone'; defId?: string }
+  /** 本回合有事件因持續時間到而捨棄 */
+  | { type: 'eventExpiredThisTurn' }
+  /** 事件區的事件上有持續時間指示物 */
+  | { type: 'eventHasCounters' }
+  /** 持有 N 張以上裝備 */
+  | { type: 'equipmentAtLeast'; n: number }
+  /** 裝備了指定的卡 */
+  | { type: 'equippedCard'; defId: string }
+  /** 本回合打出的招式中，每個名稱關鍵字都至少出現過 1 張 */
+  | { type: 'playedNamesThisTurn'; names: string[] }
+  /** 本回合有詠唱過，且本回合打出的招式都帶有詠唱特性 */
+  | { type: 'allPlayedTechniquesChanted' }
+  | { type: 'anyOf'; conditions: Condition[] }
+  | { type: 'allOf'; conditions: Condition[] };
 
 /**
  * 任務條件。任務卡是「雙面」的：
@@ -220,9 +317,36 @@ export interface QuestDef {
 /** 詠唱特性定義 */
 export interface ChantDef {
   cost: number;
+  /** 戰鬥引爆時造成的傷害 */
   damage?: number;
   guardReduction?: number;
+  /**
+   * 「詠唱：此卡傷害 +X」的 X。
+   * 完全詠唱這類「獲得詠唱效果」的卡用它計算加成；未設定時以 damage 當作加成。
+   */
+  bonus?: number;
+  /** 條件成立時引爆傷害再 +N（於戰鬥引爆時判定） */
+  conditionalBonus?: { when: Condition; damage: number };
+  /** 詠唱時立即結算的效果 */
+  effects?: Effect[];
   text: string;
+}
+
+/** 【裝備】主要階段可橫置發動的能力 */
+export interface ActivateDef {
+  /** 發動時要橫置的生命卡數 */
+  lifeCost?: number;
+  effects: Effect[];
+}
+
+/** 【裝備】用持續時間指示物抵擋傷害 */
+export interface CounterShieldDef {
+  /** 每移除幾個指示物代替受到 1 點傷害 */
+  ratio: number;
+  /** 我方事件要放置指示物時，這張卡也放相同數量 */
+  mirrorOwnEvent?: boolean;
+  /** 我方這張事件要放置指示物時，改為放在這張卡上 */
+  redirectFromEvent?: string;
 }
 
 /** 冷卻常駐增益定義 */
@@ -289,6 +413,47 @@ export interface CardDef {
 
   /** 卡牌效果 */
   effects?: Effect[];
+
+  /** 打出條件：不滿足就不能打出（例如怒氣區 8 張以上） */
+  playCondition?: Condition;
+  /** 條件式減費（例如裝備了金項鍊時費用 -1） */
+  costReduction?: { when: Condition; amount: number };
+
+  // ── 事件專屬（事件區） ──
+  /** 持續時間(X)：雙方回合結束時各放 1 個指示物，指示物 ≥ X 時捨棄。未設定 = 直到被其他事件取代 */
+  duration?: number;
+  /** 留在事件區期間，對持有者的持續效果 */
+  aura?: { target: ModifierTarget; amount: number }[];
+  /** 持有者每次詠唱時，在這張卡上放置「被詠唱卡的防禦值」數量的指示物 */
+  countersOnChant?: boolean;
+  /** 持有者防禦時，防禦值 + 這張卡上的指示物數 */
+  guardFromCounters?: boolean;
+  /** 離開事件區時結算的效果 */
+  onLeave?: Effect[];
+
+  // ── 裝備的觸發與常駐能力 ──
+  /** 主要階段可橫置發動的能力 */
+  activate?: ActivateDef;
+  /** 這張卡被橫置時結算 */
+  onSelfTap?: Effect[];
+  /** 我方任一裝備被橫置時結算 */
+  onEquipmentTap?: Effect[];
+  /** 我方打出事件時重置這張卡 */
+  untapOnOwnEvent?: boolean;
+  /** 對手回合結束時，這張卡放到我方怒氣區底 */
+  leavesAtOpponentTurnEnd?: boolean;
+  /** 牌組為 0 要重構前：這張卡放到怒氣區底，並捨棄怒氣區 N 張 */
+  beforeRebuildDiscardAnger?: number;
+  /** 用指示物抵擋傷害 */
+  counterShield?: CounterShieldDef;
+  /** 條件成立時，對手的防禦值 − 我方最後一張招式的防禦值 */
+  guardBreakByLastTechnique?: Condition;
+  /** 傷害計算時，依本回合打出招式的名稱種類數加傷 */
+  elementBonus?: { names: string[]; bonusByKinds: Record<number, number> };
+  /** 條件成立時，對手打出事件需額外選 1 張手牌放到其怒氣區底 */
+  opponentEventTax?: Condition;
+  /** 詠唱費用可以改用橫置我方裝備支付 */
+  chantPayWithEquipment?: boolean;
 }
 
 // ─────────────────────────────────────────────
@@ -329,6 +494,22 @@ export interface Buff {
   target: ModifierTarget;
   amount: number;
   expiry: ExpiryPoint;
+  filter?: CardFilter;
+  /** 不作用在這張實體卡上（「此回合其他…」） */
+  excludeIid?: number;
+  condition?: Condition;
+  once?: boolean;
+  /** 來源實體卡：裝備離場時一併移除它給的增益 */
+  sourceIid?: number;
+}
+
+/** 事件區（雙方共用，同時只能有 1 張） */
+export interface EventSlot {
+  card: CardInstance;
+  /** 持有者：打出這張事件的一方，離場時回到他的棄牌區 */
+  owner: Seat;
+  /** 持續時間指示物 */
+  counters: number;
 }
 
 /** 單一回合內的統計，任務條件與連招的判定依據 */
@@ -344,6 +525,10 @@ export interface TurnStats {
   combos: string[];
   /** 本回合打出的招式 tier 序列（依打出順序） */
   tierSequence: TechniqueTier[];
+  /** 本回合打出的招式（含詠唱）defId，依打出順序 */
+  techPlayed: string[];
+  /** 本回合詠唱次數（含「額外詠唱此卡」） */
+  chants: number;
 }
 
 export interface SideState {
@@ -357,6 +542,10 @@ export interface SideState {
   anger: CardInstance[];
   discard: CardInstance[];
   equipment: CardInstance[];
+  /** 橫置中的裝備 iid，重置階段復原 */
+  tappedEquipment: number[];
+  /** 裝備上的持續時間指示物（iid → 數量） */
+  equipCounters: Record<number, number>;
   levelZone: CardInstance[];
   questDeck: CardInstance[];
   currentQuest: CardInstance | null;
@@ -439,7 +628,11 @@ export type PendingChoiceKind =
   | 'search' // 檢索：看牌組頂 N 張，選 M 張加入手牌
   | 'salvage' // 回收：從棄牌區選 N 張加入手牌
   | 'lifeSetup' // 開局：從手牌選 N 張覆蓋到生命區
-  | 'handToAnger'; // 迫令棄置手牌至怒底：由對手自選 1 張手牌移入怒氣區底
+  | 'handToAnger' // 迫令棄置手牌至怒底：自選 N 張手牌移入自己的怒氣區底
+  | 'discardFromHand' // 自選 N 張手牌捨棄
+  | 'chantFromDiscard' // 從棄牌區選 1 張卡詠唱打出
+  | 'freeEquip' // 從手牌選 1 張裝備免費打出
+  | 'oppDiscardToAnger'; // 從對手棄牌區選 N 張放到其怒氣區底
 
 /**
  * 等待玩家做選擇的待決事項。非 null 時遊戲暫停，UI 要先讓玩家選完才能繼續。
@@ -459,6 +652,12 @@ export interface PendingChoice {
   selected: number[];
   /** 檢索專用：沒被選中的牌要去哪裡 */
   rest?: 'discard' | 'deckTop';
+  /** 不選卡的替代選項（例如「不發動」「改為捨棄牌組頂 4 張」），effects 由 seat 這一方結算 */
+  alt?: { label: string; effects?: Effect[] };
+  /** 選完之後接著由 seat 這一方結算的效果（「如果這麼做，則…」） */
+  then?: Effect[];
+  /** 效果來源卡名（接續效果的日誌用） */
+  source?: string;
 }
 
 /**
@@ -472,8 +671,13 @@ export interface PendingRebuild {
   /** 完成重構後還要繼續處理的張數（例如抽牌抽到一半） */
   remaining: number;
   /** 完成後要接續的動作 */
-  resume: 'draw' | 'anger' | 'discard';
+  resume: RebuildResume;
+  /** 等待期間又有抽牌／傷害進來：重構完成後依序補完 */
+  queued?: { resume: RebuildResume; remaining: number }[];
 }
+
+/** 重構完成後要接續的動作：抽牌、受到傷害（進怒氣區）、丟牌（進棄牌區） */
+export type RebuildResume = 'draw' | 'anger' | 'discard';
 
 export interface GameState {
   /** 本局種子。同一 seed + 同一串操作 = 完全相同的對局 */
@@ -492,6 +696,12 @@ export interface GameState {
   /** 下一個可用的執行期 id */
   nextIid: number;
   pending: PendingChoice | null;
+  /** 排隊中的選擇：同時觸發多個選擇時依序處理 */
+  pendingQueue: PendingChoice[];
   /** 等待玩家挑選生命卡的重構；非 null 時遊戲暫停 */
   pendingRebuild: PendingRebuild | null;
+  /** 雙方共用的事件區，同時只能有 1 張事件 */
+  eventZone: EventSlot | null;
+  /** 本回合是否有事件因持續時間到而捨棄 */
+  eventExpiredThisTurn: boolean;
 }

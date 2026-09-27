@@ -11,9 +11,10 @@
 
 import { card } from './cards';
 import { playTechnique, techniquePlayability } from './combat';
-import { chantTechnique, enterCombat, playCard, resolveBurst } from './engine';
-import type { CardInstance, GameState, Seat } from './types';
-import { RULES, TECHNIQUE_ORDER } from './types';
+import { matchFilter } from './conditions';
+import { activateEquipment, chantTechnique, enterCombat, playCard, resolveBurst } from './engine';
+import type { CardFilter, CardInstance, Effect, GameState, Seat } from './types';
+import { TECHNIQUE_ORDER } from './types';
 
 // ─────────────────────────────────────────────
 // 爆發階段
@@ -43,6 +44,48 @@ const KIND_PRIORITY: Record<string, number> = {
   technique: 9,
 };
 
+/** 棄牌區符合條件的張數 */
+function countInDiscard(state: GameState, seat: Seat, filter: CardFilter): number {
+  return state.sides[seat].discard.filter((c) => matchFilter(card(c.defId), filter)).length;
+}
+
+/**
+ * 這張卡的效果現在打出去有沒有意義。
+ * 只擋掉「明顯白費」的情況（例如事件區沒有事件卻要放指示物），其餘一律當作值得打。
+ */
+function effectsWorthIt(state: GameState, seat: Seat, effects: readonly Effect[] | undefined): boolean {
+  const side = state.sides[seat];
+  const ev = state.eventZone;
+
+  for (const e of effects ?? []) {
+    switch (e.type) {
+      case 'chantFromDiscard':
+        if (!side.discard.some((c) => !!card(c.defId).chant)) return false;
+        break;
+      case 'addEventCounters':
+        // 用來加速對手的事件離場，或累積自己整理魔導書的指示物
+        if (!ev) return false;
+        if (ev.owner === seat && !card(ev.card.defId).onLeave) return false;
+        break;
+      case 'reshuffleDiscard':
+      case 'drawPerDiscard':
+      case 'discardAngerPerDiscard':
+        if (countInDiscard(state, seat, e.filter) === 0) return false;
+        break;
+      case 'discardToAnger':
+        if (side.discard.length === 0) return false;
+        break;
+      case 'modify':
+        // 詠唱費用改為 1：手上要有詠唱費用高於 1 的卡才划算
+        if (e.target === 'chantCostFixed' && !side.hand.some((c) => (card(c.defId).chant?.cost ?? 0) > e.amount)) {
+          return false;
+        }
+        break;
+    }
+  }
+  return true;
+}
+
 function shouldPlay(state: GameState, seat: Seat, inst: CardInstance): boolean {
   const def = card(inst.defId);
   const side = state.sides[seat];
@@ -54,11 +97,21 @@ function shouldPlay(state: GameState, seat: Seat, inst: CardInstance): boolean {
     case 'equipment':
       return side.level >= (def.levelRequirement ?? 1);
 
-    case 'event':
+    case 'event': {
       // 事件卡每回合只能 1 張，留給後面可能更需要的手牌
-      return side.life.filter((l) => !l.tapped).length >= 2;
+      if (def.cost > 0 && side.life.filter((l) => !l.tapped).length < 2) return false;
+      // 不要蓋掉自己還在發揮作用的持續型事件
+      const ev = state.eventZone;
+      if (ev && ev.owner === seat) {
+        const cur = card(ev.card.defId);
+        if (cur.aura || cur.guardFromCounters || cur.onLeave) return false;
+      }
+      return effectsWorthIt(state, seat, def.effects);
+    }
 
     case 'action':
+      return effectsWorthIt(state, seat, def.effects);
+
     case 'quest':
       return true;
 
@@ -67,14 +120,36 @@ function shouldPlay(state: GameState, seat: Seat, inst: CardInstance): boolean {
   }
 }
 
+/** 裝備的發動能力現在值不值得用 */
+function shouldActivate(state: GameState, seat: Seat, inst: CardInstance): boolean {
+  const act = card(inst.defId).activate;
+  if (!act) return false;
+  const side = state.sides[seat];
+
+  // 付生命費用發動時，至少留 1 張生命卡給其他費用
+  const lifeCost = act.lifeCost ?? 0;
+  if (lifeCost > 0 && side.life.filter((l) => !l.tapped).length <= lifeCost) return false;
+
+  for (const e of act.effects) {
+    if (e.type !== 'modify') continue;
+    // 額外詠唱：手上要有可以詠唱的卡
+    if (e.target === 'extraChant' && !side.hand.some((c) => !!card(c.defId).chant)) return false;
+    // 「下一張…費用 -1」：手上要有對應的卡，否則白白自傷
+    if (e.target === 'cost' && e.filter && !side.hand.some((c) => matchFilter(card(c.defId), e.filter))) return false;
+  }
+  return effectsWorthIt(state, seat, act.effects);
+}
+
 /** 依優先序打出所有值得打的卡。回傳實際打出的張數 */
 export function mainPhase(state: GameState, seat: Seat): number {
   let played = 0;
   let safety = 40; // 防止任何意外造成無限迴圈
 
   while (safety-- > 0) {
+    // 自己有選擇要做時先停下來（跟真人一樣，選完才能繼續）
+    if (state.pending?.seat === seat || state.pendingRebuild?.seat === seat) break;
+
     const hand = [...state.sides[seat].hand];
-    if (hand.length === 0) break;
 
     hand.sort((a, b) => {
       const pa = KIND_PRIORITY[card(a.defId).kind] ?? 9;
@@ -84,20 +159,24 @@ export function mainPhase(state: GameState, seat: Seat): number {
 
     let acted = false;
 
-    // 先嘗試詠唱（若有詠唱卡且未詠唱過）
-    if (state.sides[seat].chantsUsedThisTurn < RULES.chantsPerTurn) {
-      for (const inst of hand) {
-        const def = card(inst.defId);
-        if (def.chant) {
-          if (chantTechnique(state, seat, inst.iid).ok) {
-            played++;
-            acted = true;
-            break;
-          }
-        }
+    // 先發動裝備能力（例如披風的減費要在打出奧義前用）
+    for (const eq of state.sides[seat].equipment) {
+      if (shouldActivate(state, seat, eq) && activateEquipment(state, seat, eq.iid).ok) {
+        acted = true;
+        break;
       }
-      if (acted) continue;
     }
+    if (acted) continue;
+
+    // 再嘗試詠唱（還有詠唱次數時）
+    for (const inst of hand) {
+      if (card(inst.defId).chant && chantTechnique(state, seat, inst.iid).ok) {
+        played++;
+        acted = true;
+        break;
+      }
+    }
+    if (acted) continue;
 
     for (const inst of hand) {
       if (!shouldPlay(state, seat, inst)) continue;
@@ -130,6 +209,7 @@ export function combatPhase(state: GameState, seat: Seat): number {
 
   for (const tier of TECHNIQUE_ORDER) {
     if (state.winner) break;
+    if (state.pending?.seat === seat || state.pendingRebuild?.seat === seat) break;
 
     const candidates = state.sides[seat].hand.filter((c) => card(c.defId).tier === tier);
     for (const c of candidates) {

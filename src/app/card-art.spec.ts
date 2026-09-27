@@ -3,7 +3,7 @@
  *
  * 卡圖是手寫的 SVG 字串，打錯一個標籤不會讓 TypeScript 或 build 失敗，
  * 只會在瀏覽器裡默默變成空白。這裡用 DOMParser 實際解析每個字串，
- * 確保 32 張卡的圖騰都是合法 SVG。
+ * 確保每一張卡的圖騰都是合法 SVG。
  */
 
 import { describe, expect, it } from 'vitest';

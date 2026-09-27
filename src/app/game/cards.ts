@@ -67,6 +67,8 @@ interface EquipOpts {
   cost?: number;
   level?: number;
   effects?: Effect[];
+  /** 發動能力、觸發能力等其餘欄位 */
+  extra?: Partial<CardDef>;
 }
 
 function equipment(
@@ -86,6 +88,7 @@ function equipment(
     levelRequirement: opts.level ?? 1,
     effects: opts.effects,
     text,
+    ...opts.extra,
   };
 }
 
@@ -124,6 +127,10 @@ interface EventOpts {
   toAngerBottom?: boolean;
   cooldown?: number;
   cooldownBuff?: CardDef['cooldownBuff'];
+  /** 持續時間(X)；不設定 = 直到被其他事件取代 */
+  duration?: number;
+  /** 打出條件、持續效果、離場效果等其餘欄位 */
+  extra?: Partial<CardDef>;
 }
 
 function event(
@@ -146,6 +153,8 @@ function event(
     toAngerBottom: opts.toAngerBottom,
     cooldown: opts.cooldown,
     cooldownBuff: opts.cooldownBuff,
+    duration: opts.duration,
+    ...opts.extra,
   };
 }
 
@@ -252,7 +261,8 @@ const RAGE_CARDS: CardDef[] = [
       { type: 'mill', n: 2 },
       { type: 'immuneTrickSecret' },
     ],
-    '自傷 2 點。對手下回合中我方不受特技、密技的傷害與效果影響。',
+    '【持續時間4】自傷 2 點。對手下回合中我方不受特技、密技的傷害與效果影響。',
+    { duration: 4 },
   ),
   event(
     'rg_shenshenxian',
@@ -263,7 +273,8 @@ const RAGE_CARDS: CardDef[] = [
       { type: 'extraGuard', n: 1, expiry: { at: 'thisTurnEnd' } },
       { type: 'modify', target: 'damageReduction', amount: 2, expiry: { at: 'thisTurnEnd' } },
     ],
-    '本回合戰鬥時防禦判定額外翻開 1 張防禦卡，且受到的戰鬥傷害減免 2 點。',
+    '【持續時間2】本回合戰鬥時防禦判定額外翻開 1 張防禦卡，且受到的戰鬥傷害減免 2 點。',
+    { duration: 2 },
   ),
 
   // 裝備
@@ -399,6 +410,435 @@ const RAGE_CARDS: CardDef[] = [
     },
     '【密奧義・解放條件：本回合已打出過奧義】【額外費用：捨棄怒氣 2 張】造成 8 點毀滅傷害。',
   ),
+  // ── 狂怒修羅擴充（CSV 新卡）──
+
+  // 行動
+  action(
+    'rg_xiyan',
+    '吸菸',
+    0,
+    1,
+    [
+      { type: 'discardToAnger', n: 6 },
+      { type: 'recover', n: 3 },
+    ],
+    '自己棄牌區 6 張卡放到怒氣區，將怒氣區洗牌，之後回復 3。',
+  ),
+  action(
+    'rg_hejiu',
+    '喝酒',
+    2,
+    1,
+    [
+      { type: 'discardToAnger', n: 4 },
+      { type: 'draw', n: 2 },
+    ],
+    '自己棄牌區 4 張卡放到怒氣區，將怒氣區洗牌，之後抽 2 張。',
+  ),
+
+  // 事件
+  event(
+    'rg_nuqichang',
+    '憤怒氣場',
+    3,
+    0,
+    [{ type: 'draw', n: 1 }],
+    '【持續時間1】怒氣區必須有 8 張以上才能打出此卡。抽 1 張。',
+    { duration: 1, extra: { playCondition: { type: 'angerAtLeast', n: 8 } } },
+  ),
+  event(
+    'rg_yingyuan',
+    '應援團',
+    3,
+    3,
+    [{ type: 'discardAnger', n: 'all' }],
+    '【持續時間4】裝備「金項鍊」時此卡費用 -1。捨棄我方怒氣區全部卡片。在事件區期間：我方招式不需要費用（包括額外費用），回復效果 +1。',
+    {
+      duration: 4,
+      extra: {
+        costReduction: { when: { type: 'equippedCard', defId: 'rg_eq_jinxianglian' }, amount: 1 },
+        aura: [
+          { target: 'freeTechnique', amount: 1 },
+          { target: 'recoverAmount', amount: 1 },
+        ],
+      },
+    },
+  ),
+
+  // 裝備
+  equipment(
+    'rg_eq_gunbang',
+    '+9棍棒',
+    'weapon',
+    {
+      level: 0,
+      guard: 1,
+      effects: [{ type: 'modify', target: 'cost', amount: -1, expiry: { at: 'permanent' }, filter: { id: 'rg_yingyuan' } }],
+    },
+    '【武器・等級0】「應援團」費用 -1。',
+  ),
+  equipment(
+    'rg_eq_gunbang89',
+    '8+9棍棒',
+    'weapon',
+    {
+      level: 2,
+      guard: 2,
+      effects: [{ type: 'modify', target: 'cost', amount: -2, expiry: { at: 'permanent' }, filter: { id: 'rg_yingyuan' } }],
+    },
+    '【武器・等級2】「應援團」費用 -2。',
+  ),
+  equipment(
+    'rg_eq_xiaodao',
+    '小刀',
+    'weapon',
+    {
+      level: 1,
+      guard: 0,
+      effects: [
+        {
+          type: 'modify',
+          target: 'techniqueDamage',
+          amount: 1,
+          expiry: { at: 'permanent' },
+          condition: { type: 'ownEventInZone' },
+        },
+        {
+          type: 'modify',
+          target: 'hiddenDamage',
+          amount: 2,
+          expiry: { at: 'permanent' },
+          condition: { type: 'ownEventInZone' },
+        },
+      ],
+    },
+    '【武器・等級1】事件區有我方的事件時：我方全部招式傷害 +1，密奧義再 +2。',
+  ),
+  equipment(
+    'rg_eq_diaoga',
+    '打老婆吊嘎',
+    'armor',
+    { level: 3, guard: 0, extra: { opponentEventTax: { type: 'ownEventInZone' } } },
+    '【衣服・等級3】事件區有我方的事件時：對手打出事件需額外選擇自己 1 張手牌放到怒氣區底。',
+  ),
+  equipment(
+    'rg_eq_pifeng',
+    '披風',
+    'armor',
+    {
+      level: 2,
+      guard: 2,
+      extra: {
+        activate: {
+          effects: [
+            { type: 'mill', n: 2 },
+            {
+              type: 'modify',
+              target: 'cost',
+              amount: -1,
+              expiry: { at: 'thisTurnEnd' },
+              filter: { tiers: ['ultimate', 'hidden'] },
+              once: true,
+            },
+          ],
+        },
+      },
+    },
+    '【衣服・等級2】主要階段：橫置此卡，對自己造成 2 點傷害，本回合你的下一張奧義或密奧義費用 -1。',
+  ),
+  equipment(
+    'rg_eq_guaeryan',
+    '掛耳菸',
+    'helmet',
+    {
+      level: 2,
+      guard: 0,
+      extra: {
+        activate: {
+          effects: [
+            { type: 'discardToAnger', n: 5 },
+            { type: 'recover', n: 1 },
+          ],
+        },
+      },
+    },
+    '【頭盔・等級2】主要階段：橫置此卡，自己棄牌區 5 張卡放到怒氣區並洗牌，之後回復 1。',
+  ),
+  equipment(
+    'rg_eq_toujin',
+    '頭巾',
+    'helmet',
+    { level: 0, guard: 0, extra: { activate: { effects: [{ type: 'discardToAnger', n: 2 }] } } },
+    '【頭盔・等級0】主要階段：橫置此卡，自己棄牌區 2 張卡放到怒氣區並洗牌。',
+  ),
+  equipment(
+    'rg_eq_pijiu',
+    '罐裝啤酒',
+    'glove',
+    {
+      level: 2,
+      guard: 0,
+      extra: {
+        activate: {
+          effects: [
+            { type: 'discardToAnger', n: 3 },
+            { type: 'draw', n: 1 },
+          ],
+        },
+      },
+    },
+    '【手套・等級2】主要階段：橫置此卡，自己棄牌區 3 張卡放到怒氣區並洗牌，之後抽 1 張。',
+  ),
+  equipment(
+    'rg_eq_fanghua',
+    '防滑手套',
+    'glove',
+    { level: 3, guard: 1, extra: { guardBreakByLastTechnique: { type: 'ownEventInZone' } } },
+    '【手套・等級3】事件區有我方的事件時：對手的防禦判定 −X（X = 我方最後一張招式卡的防禦值）。',
+  ),
+  equipment(
+    'rg_eq_jiaotuo',
+    '夾腳拖鞋',
+    'boots',
+    { level: 2, guard: 0, extra: { onEquipmentTap: [{ type: 'recover', n: 1 }] } },
+    '【鞋子・等級2】每當你的裝備橫置時，回復 1。',
+  ),
+  equipment(
+    'rg_eq_muji',
+    '木屐',
+    'boots',
+    {
+      level: 2,
+      guard: 2,
+      extra: {
+        activate: {
+          effects: [
+            { type: 'mill', n: 2 },
+            {
+              type: 'modify',
+              target: 'cost',
+              amount: -1,
+              expiry: { at: 'thisTurnEnd' },
+              filter: { kind: 'action' },
+              once: true,
+            },
+          ],
+        },
+      },
+    },
+    '【鞋子・等級2】主要階段：橫置此卡，對自己造成 2 點傷害，本回合你的下一張行動卡費用 -1。',
+  ),
+  equipment(
+    'rg_eq_yaogao',
+    '藥膏貼布',
+    'accessory',
+    {
+      level: 1,
+      guard: 0,
+      effects: [{ type: 'modify', target: 'recoverAmount', amount: 1, expiry: { at: 'permanent' } }],
+      extra: { leavesAtOpponentTurnEnd: true },
+    },
+    '【飾品・等級1】回復效果 +1。對手回合結束時，此卡放到怒氣區底。',
+  ),
+  equipment(
+    'rg_eq_jinxianglian',
+    '金項鍊',
+    'accessory',
+    {
+      level: 3,
+      guard: 2,
+      cost: 2,
+      extra: {
+        activate: { lifeCost: 1, effects: [] },
+        onSelfTap: [{ type: 'recover', n: 1 }],
+        untapOnOwnEvent: true,
+      },
+    },
+    '【飾品・等級3】主要階段：你可以支付 1 費橫置此卡。此卡橫置時，回復 1。你打出事件時，此卡重置。',
+  ),
+  equipment(
+    'rg_eq_bengdai',
+    '繃帶',
+    'accessory',
+    { level: 3, guard: 1, extra: { beforeRebuildDiscardAnger: 10 } },
+    '【飾品・等級3】你的牌組為 0、要重構前：此卡放到怒氣區底，並捨棄怒氣區 10 張卡。',
+  ),
+
+  // 招式（CSV 未提供卡名，名稱依效果暫定）
+  technique(
+    'rg_tech_jiaoxiao',
+    '群起叫囂',
+    'trick',
+    {
+      damage: 1,
+      guard: 1,
+      effects: [
+        {
+          type: 'conditional',
+          when: { type: 'ownEventInZone', defId: 'rg_nuqichang' },
+          effect: { type: 'allDrawThenAngerBottom', draw: 1 },
+        },
+      ],
+    },
+    '事件區有我方的「憤怒氣場」時：雙方各抽 1 張，然後各自選擇 1 張手牌放到怒氣區底。',
+  ),
+  technique(
+    'rg_tech_boming',
+    '搏命拳',
+    'trick',
+    {
+      damage: 1,
+      guard: 1,
+      effects: [
+        { type: 'mill', n: 2 },
+        { type: 'tapEquipment', n: 1 },
+      ],
+    },
+    '對自己造成 2 點傷害，橫置 1 張裝備卡。',
+  ),
+  technique(
+    'rg_tech_xienu',
+    '洩怒掌',
+    'trick',
+    { damage: 2, guard: 2, effects: [{ type: 'discardAnger', n: 2 }] },
+    '捨棄我方怒氣區 2 張卡。',
+  ),
+  technique(
+    'rg_tech_nizhuan',
+    '逆怒轉勁',
+    'secret',
+    {
+      damage: 2,
+      guard: 1,
+      effects: [
+        {
+          type: 'conditional',
+          when: { type: 'ownEventInZone', defId: 'rg_nuqichang' },
+          effect: { type: 'angerToHandThenDiscard', n: 2 },
+          otherwise: {
+            type: 'conditional',
+            when: { type: 'ownEventInZone' },
+            effect: { type: 'angerToHandThenDiscard', n: 1 },
+          },
+        },
+      ],
+    },
+    '事件區有我方的事件時：從怒氣區取 X 張卡加入手牌，然後捨棄 X 張手牌。該事件為「憤怒氣場」時 X = 2，否則 X = 1。',
+  ),
+  technique(
+    'rg_tech_huyou',
+    '呼朋引伴',
+    'secret',
+    {
+      damage: 2,
+      guard: 1,
+      effects: [
+        {
+          type: 'conditional',
+          when: { type: 'ownEventInZone', defId: 'rg_yingyuan' },
+          effect: { type: 'freeEquip' },
+        },
+      ],
+    },
+    '事件區有我方的「應援團」時：可以不支付費用打出 1 張裝備（須符合需求）。',
+  ),
+  technique(
+    'rg_tech_nuyan',
+    '怒焰斬',
+    'secret',
+    { damage: 3, guard: 2, effects: [{ type: 'discardAnger', n: 3 }] },
+    '捨棄我方怒氣區 3 張卡。',
+  ),
+  technique(
+    'rg_tech_yanmian',
+    '怒氣延綿',
+    'ultimate',
+    {
+      damage: 3,
+      guard: 2,
+      cost: 1,
+      effects: [
+        { type: 'removeOwnEventCounters', n: 2 },
+        {
+          type: 'conditional',
+          when: { type: 'ownEventInZone', defId: 'rg_nuqichang' },
+          effect: { type: 'untapLife', n: 1 },
+        },
+      ],
+    },
+    '事件區有我方的事件時：移除該事件上 2 個持續時間指示物。該事件為「憤怒氣場」時，重置我方 1 張生命卡。',
+  ),
+  technique(
+    'rg_tech_sheshen',
+    '修羅捨身',
+    'ultimate',
+    {
+      damage: 3,
+      guard: 2,
+      cost: 1,
+      effects: [
+        { type: 'mill', n: 4 },
+        { type: 'tapEquipment', n: 2 },
+      ],
+    },
+    '對自己造成 4 點傷害，橫置 2 張裝備卡。',
+  ),
+  technique(
+    'rg_tech_bengtian',
+    '狂怒崩天',
+    'ultimate',
+    { damage: 5, guard: 3, cost: 1, effects: [{ type: 'discardAnger', n: 5 }] },
+    '捨棄我方怒氣區 5 張卡。',
+  ),
+  technique(
+    'rg_tech_baibing',
+    '修羅百兵',
+    'hidden',
+    {
+      damage: 5,
+      guard: 4,
+      cost: 1,
+      liberation: { type: 'equipmentAtLeast', n: 2 },
+      effects: [{ type: 'boostSelfPerTappedEquipment' }],
+    },
+    '【密奧義・解放條件：持有 2 張以上裝備】此卡傷害 +X（X = 橫置狀態的裝備張數）。',
+  ),
+  technique(
+    'rg_tech_diyu',
+    '修羅地獄',
+    'hidden',
+    {
+      damage: 4,
+      guard: 4,
+      cost: 1,
+      liberation: {
+        type: 'allOf',
+        conditions: [{ type: 'ownEventInZone' }, { type: 'usedTierThisTurn', tier: 'ultimate' }],
+      },
+      effects: [
+        {
+          type: 'conditional',
+          when: { type: 'ownEventInZone', defId: 'rg_nuqichang' },
+          effect: { type: 'opponentDrawToThenAngerBottom', handSize: 10, n: 7 },
+          otherwise: { type: 'opponentDrawToThenAngerBottom', handSize: 10, n: 5 },
+        },
+      ],
+    },
+    '【密奧義・解放條件：事件區有我方的事件，且本回合已打出過奧義】對手抽牌直到手牌 10 張，然後對手選擇自己 X 張手牌放到怒氣區底。事件為「憤怒氣場」時 X = 7，否則 X = 5。',
+  ),
+  technique(
+    'rg_tech_kuangtao',
+    '怒海狂濤',
+    'hidden',
+    {
+      damage: 7,
+      guard: 5,
+      cost: 1,
+      liberation: { type: 'angerAtLeast', n: 4 },
+      effects: [{ type: 'opponentDiscardToAngerBottom', n: 2 }],
+    },
+    '【密奧義・解放條件：怒氣區 4 張以上】選擇對手棄牌區 2 張卡放到對手的怒氣區底。',
+  ),
 ];
 
 // ─────────────────────────────────────────────
@@ -462,7 +902,8 @@ const MAGE_CARDS: CardDef[] = [
     3,
     2,
     [{ type: 'modify', target: 'damageReduction', amount: 3, expiry: { at: 'thisTurnEnd' } }],
-    '本回合受到的戰鬥傷害減免 3 點。',
+    '【持續時間1】本回合受到的戰鬥傷害減免 3 點。',
+    { duration: 1 },
   ),
   event(
     'mg_gongming',
@@ -476,7 +917,8 @@ const MAGE_CARDS: CardDef[] = [
         effect: { type: 'draw', n: 2 },
       },
     ],
-    '若本回合已打出過詠唱招式，立即抽取 2 張卡。',
+    '【持續時間1】若本回合已打出過詠唱招式，立即抽取 2 張卡。',
+    { duration: 1 },
   ),
 
   // 裝備
@@ -642,6 +1084,305 @@ const MAGE_CARDS: CardDef[] = [
     },
     '【密奧義・解放條件：本回合已打出過奧義】造成 8 點毀天滅地的終極傷害。',
   ),
+  // ── 祕法星詠擴充（CSV 新卡）──
+
+  // 行動
+  action(
+    'mg_gaosu',
+    '高速詠唱',
+    1,
+    0,
+    [{ type: 'modify', target: 'chantCostFixed', amount: 1, expiry: { at: 'thisTurnEnd' } }],
+    '本回合你全部卡片的詠唱費用改為 1。',
+  ),
+  action(
+    'mg_kuaisu',
+    '快速冷卻',
+    2,
+    1,
+    [{ type: 'chantFromDiscard' }],
+    '選擇棄牌區 1 張卡作為詠唱打出（需支付詠唱費用，不佔本回合詠唱次數）。',
+  ),
+  action(
+    'mg_jiasu',
+    '祕法加速',
+    2,
+    1,
+    [{ type: 'addEventCounters', n: 3 }],
+    '在事件區的事件卡上放置 3 個持續時間指示物。',
+  ),
+  action(
+    'mg_bingfeng',
+    '冰封',
+    2,
+    1,
+    [{ type: 'reshuffleDiscard', filter: { kind: 'technique', nameAny: ['冰'] }, then: 'recoverX' }],
+    '棄牌區名稱包含「冰」的招式卡全部放回牌組洗牌，之後回復 X（X = 放回牌組的張數）。',
+  ),
+  action(
+    'mg_dianshan',
+    '電閃',
+    2,
+    1,
+    [{ type: 'drawPerDiscard', filter: { kind: 'technique', nameAny: ['電'] }, max: 5 }],
+    '抽 X 張（X = 棄牌區名稱包含「電」的招式卡張數，最多 5）。',
+  ),
+  action(
+    'mg_huoguang',
+    '火光',
+    2,
+    1,
+    [{ type: 'discardAngerPerDiscard', filter: { kind: 'technique', nameAny: ['火'] } }],
+    '捨棄怒氣區 X 張卡（X = 棄牌區名稱包含「火」的招式卡張數）。',
+  ),
+
+  // 事件（沒有持續時間：直到被其他事件取代）
+  event(
+    'mg_lichang',
+    '秘法力場',
+    3,
+    1,
+    [],
+    '你每次詠唱時，在此卡上放置被詠唱卡防禦值數量的持續時間指示物。你防禦時，防禦值 + 此卡上的指示物數。（無持續時間，直到被其他事件取代）',
+    { extra: { countersOnChant: true, guardFromCounters: true } },
+  ),
+  event(
+    'mg_modao',
+    '整理魔導書',
+    1,
+    1,
+    [],
+    '此卡離開事件區時，從棄牌區選擇 X 張招式卡加入手牌（X = 此卡上的持續時間指示物）。（無持續時間，直到被其他事件取代）',
+    { extra: { onLeave: [{ type: 'salvageByCounters', filter: { kind: 'technique' } }] } },
+  ),
+
+  // 裝備
+  equipment(
+    'mg_eq_xianzhang',
+    '賢者法杖',
+    'weapon',
+    {
+      level: 3,
+      guard: 2,
+      extra: {
+        activate: {
+          lifeCost: 1,
+          effects: [{ type: 'modify', target: 'extraChant', amount: 1, expiry: { at: 'thisTurnEnd' } }],
+        },
+      },
+    },
+    '【武器・等級3】主要階段：支付 1 費橫置此卡，本回合你可以額外詠唱 1 次。',
+  ),
+  equipment(
+    'mg_eq_xianpao',
+    '賢者法袍',
+    'armor',
+    { level: 3, guard: 2, extra: { chantPayWithEquipment: true } },
+    '【衣服・等級3】你的全部裝備可以橫置來支付詠唱費用。',
+  ),
+  equipment(
+    'mg_eq_mipao',
+    '秘法法袍',
+    'armor',
+    { level: 3, guard: 2, extra: { counterShield: { ratio: 1, redirectFromEvent: 'mg_lichang' } } },
+    '【衣服・等級3】我方「秘法力場」要放置指示物時，改為放在此卡上。我方要受到傷害時，改為移除此卡上的指示物代替（每 1 個指示物代替 1 點傷害）。',
+  ),
+  equipment(
+    'mg_eq_mimao',
+    '秘法帽',
+    'helmet',
+    { level: 1, guard: 2, extra: { counterShield: { ratio: 2, mirrorOwnEvent: true } } },
+    '【頭盔・等級1】你的事件要放置指示物時，此卡也放置相同數量的指示物。我方要受到傷害時，改為移除此卡上的指示物代替（每 2 個指示物代替 1 點傷害）。',
+  ),
+  equipment(
+    'mg_eq_yuansu',
+    '元素之章',
+    'accessory',
+    { level: 2, guard: 2, extra: { elementBonus: { names: ['火', '冰', '電'], bonusByKinds: { 2: 2, 3: 5 } } } },
+    '【飾品・等級2】傷害計算時我方傷害 +X：本回合打出的招式名稱包含「火」「冰」「電」達 2 種時 X = 2，3 種時 X = 5。',
+  ),
+
+  // 招式：元素系（詠唱引爆傷害 = 基礎傷害 + 詠唱加成）
+  technique(
+    'mg_el_huoqiu',
+    '火球',
+    'trick',
+    { damage: 2, guard: 2, chant: { cost: 1, damage: 4, bonus: 2, text: '詠唱(1)：此卡傷害 +2。' } },
+    '【詠唱(1)】此卡傷害 +2。',
+  ),
+  technique(
+    'mg_el_bingzhui',
+    '冰錐',
+    'trick',
+    {
+      damage: 1,
+      guard: 3,
+      chant: {
+        cost: 1,
+        damage: 1,
+        bonus: 0,
+        effects: [{ type: 'addEventCounters', n: 1 }],
+        text: '詠唱(1)：在事件卡上放置 1 個持續時間指示物。',
+      },
+    },
+    '【詠唱(1)】在事件卡上放置 1 個持續時間指示物。',
+  ),
+  technique(
+    'mg_el_dianqiu',
+    '電球',
+    'trick',
+    {
+      damage: 1,
+      guard: 1,
+      effects: [{ type: 'discardToSalvage', filter: { kind: 'technique', nameAny: ['電'] } }],
+      chant: { cost: 1, damage: 2, bonus: 1, text: '詠唱(1)：此卡傷害 +1。' },
+    },
+    '可以捨棄 1 張手牌，若這麼做則從棄牌區選擇 1 張名稱包含「電」的招式卡加入手牌。【詠唱(1)】此卡傷害 +1。',
+  ),
+  technique(
+    'mg_el_huoqiang',
+    '火牆',
+    'secret',
+    {
+      damage: 1,
+      guard: 2,
+      chant: {
+        cost: 2,
+        damage: 1,
+        bonus: 0,
+        effects: [
+          {
+            type: 'modify',
+            target: 'techniqueDamage',
+            amount: 2,
+            expiry: { at: 'thisTurnEnd' },
+            filter: { kind: 'technique', nameAny: ['火'] },
+            excludeSelf: true,
+          },
+        ],
+        text: '詠唱(2)：本回合其他名稱包含「火」的招式傷害 +2。',
+      },
+    },
+    '【詠唱(2)】本回合其他名稱包含「火」的招式傷害 +2。',
+  ),
+  technique(
+    'mg_el_bingqiang',
+    '冰牆',
+    'secret',
+    {
+      damage: 1,
+      guard: 3,
+      chant: {
+        cost: 2,
+        damage: 1,
+        bonus: 0,
+        conditionalBonus: { when: { type: 'eventExpiredThisTurn' }, damage: 5 },
+        text: '詠唱(2)：本回合若有事件因持續時間到而捨棄，此卡傷害 +5。',
+      },
+    },
+    '【詠唱(2)】本回合若有事件因持續時間到而捨棄，此卡傷害 +5。',
+  ),
+  technique(
+    'mg_el_dianwang',
+    '電網',
+    'secret',
+    {
+      damage: 1,
+      guard: 1,
+      effects: [
+        { type: 'draw', n: 1 },
+        { type: 'discardChosen', n: 1 },
+      ],
+      chant: {
+        cost: 2,
+        damage: 1,
+        bonus: 0,
+        effects: [{ type: 'opponentDiscardTechOrMill', mill: 4 }],
+        text: '詠唱(2)：對手選擇捨棄自己手中 1 張招式，或捨棄牌組頂 4 張。',
+      },
+    },
+    '抽 1 張，捨棄 1 張手牌。【詠唱(2)】對手選擇捨棄自己手中 1 張招式，或捨棄牌組頂 4 張。',
+  ),
+  technique(
+    'mg_el_huoyu',
+    '火雨',
+    'ultimate',
+    { damage: 3, guard: 2, cost: 1, chant: { cost: 1, damage: 5, bonus: 2, text: '詠唱(1)：此卡傷害 +2。' } },
+    '【詠唱(1)】此卡傷害 +2。',
+  ),
+  technique(
+    'mg_el_bingshuang',
+    '冰霜爆',
+    'ultimate',
+    {
+      damage: 2,
+      guard: 3,
+      cost: 1,
+      chant: {
+        cost: 2,
+        damage: 2,
+        bonus: 0,
+        effects: [{ type: 'addEventCounters', n: 2 }],
+        text: '詠唱(2)：在事件卡上放置 2 個持續時間指示物。',
+      },
+    },
+    '【詠唱(2)】在事件卡上放置 2 個持續時間指示物。',
+  ),
+  technique(
+    'mg_el_diancipao',
+    '電磁砲',
+    'ultimate',
+    {
+      damage: 2,
+      guard: 1,
+      cost: 1,
+      effects: [{ type: 'discardToSalvage', filter: { kind: 'technique', nameAny: ['電'] } }],
+      chant: { cost: 2, damage: 4, bonus: 2, text: '詠唱(2)：此卡傷害 +2。' },
+    },
+    '可以捨棄 1 張手牌，若這麼做則從棄牌區選擇 1 張名稱包含「電」的招式卡加入手牌。【詠唱(2)】此卡傷害 +2。',
+  ),
+  technique(
+    'mg_tech_wanquan',
+    '完全詠唱',
+    'hidden',
+    {
+      damage: 1,
+      guard: 4,
+      cost: 1,
+      liberation: { type: 'allPlayedTechniquesChanted' },
+      effects: [{ type: 'gainPlayedChants' }],
+    },
+    '【密奧義・解放條件：本回合有詠唱過，且本回合打出的招式都帶有詠唱特性】此卡獲得本回合打出招式的全部詠唱效果，並額外詠唱此卡。',
+  ),
+  technique(
+    'mg_tech_dianguang',
+    '電光石火',
+    'hidden',
+    {
+      damage: 5,
+      guard: 4,
+      cost: 1,
+      liberation: { type: 'playedNamesThisTurn', names: ['電', '火'] },
+      effects: [
+        { type: 'discardAllHand' },
+        { type: 'reshuffleDiscard', filter: { kind: 'technique', nameAny: ['電', '火'] }, then: 'boostSelf' },
+      ],
+    },
+    '【密奧義・解放條件：本回合打出過名稱包含「電」與「火」的招式各 1 張】捨棄全部手牌，棄牌區名稱包含「電」「火」的招式卡全部放回牌組洗牌。此卡傷害 +X（X = 放回牌組的張數）。',
+  ),
+  technique(
+    'mg_tech_bingling',
+    '冰菱城下',
+    'hidden',
+    {
+      damage: 3,
+      guard: 4,
+      cost: 1,
+      liberation: { type: 'anyOf', conditions: [{ type: 'eventExpiredThisTurn' }, { type: 'eventHasCounters' }] },
+      effects: [{ type: 'discardAngerByCountersGainChant', filter: { nameAny: ['冰'] } }],
+    },
+    '【密奧義・解放條件：本回合有事件因持續時間到而捨棄，或事件區的事件上有持續時間指示物】捨棄自己怒氣區 X 張（X = 我方卡片上的持續時間指示物總數）。此卡獲得因此捨棄、名稱包含「冰」的招式詠唱效果，並額外詠唱此卡。',
+  ),
 ];
 
 // ─────────────────────────────────────────────
@@ -724,8 +1465,9 @@ const QIGONG_CARDS: CardDef[] = [
     3,
     2,
     [{ type: 'modify', target: 'damageReduction', amount: 2, expiry: { at: 'thisTurnEnd' } }],
-    '【冷卻3】本回合受到的戰鬥傷害減免 2 點。在冷卻區期間：我方防禦值 +1。',
+    '【持續時間1・冷卻3】本回合受到的戰鬥傷害減免 2 點。離開事件區後進入冷卻區；在冷卻區期間：我方防禦值 +1。',
     {
+      duration: 1,
       cooldown: 3,
       cooldownBuff: { target: 'guardValue', amount: 1, text: '太極：防禦值 +1' },
     },
@@ -739,7 +1481,8 @@ const QIGONG_CARDS: CardDef[] = [
       { type: 'recover', n: 2 },
       { type: 'modify', target: 'guardValue', amount: 2, expiry: { at: 'thisTurnEnd' } },
     ],
-    '回復 2 張怒氣卡至牌組頂，本回合防禦值 +2。',
+    '【持續時間1】回復 2 張怒氣卡至牌組頂，本回合防禦值 +2。',
+    { duration: 1 },
   ),
 
   // 裝備
@@ -928,7 +1671,8 @@ export const COMMON_CARDS: readonly CardDef[] = [
     2,
     2,
     [{ type: 'modify', target: 'damageReduction', amount: 2, expiry: { at: 'thisTurnEnd' } }],
-    '幻形退避，本回合受到的戰鬥傷害減免 2 點。',
+    '【持續時間1】幻形退避，本回合受到的戰鬥傷害減免 2 點。',
+    { duration: 1 },
   ),
   event(
     'cm_qiguan',
@@ -936,7 +1680,8 @@ export const COMMON_CARDS: readonly CardDef[] = [
     1,
     1,
     [{ type: 'modify', target: 'techniqueDamage', amount: 2, expiry: { at: 'thisTurnEnd' } }],
-    '真氣灌頂，本回合所有招式傷害 +2。',
+    '【持續時間1】真氣灌頂，本回合所有招式傷害 +2。',
+    { duration: 1 },
   ),
 
   // 裝備

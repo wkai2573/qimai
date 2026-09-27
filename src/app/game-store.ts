@@ -4,6 +4,10 @@ import { npcCombatPhase, npcMainPhase, npcShouldBurst } from './game/ai';
 import { CHARACTER_MAIN_DECKS, card, validateMainDeck } from './game/cards';
 import { clearCombat, finishCombat, playTechnique, techniquePlayability } from './game/combat';
 import {
+  activateEquipment,
+  activationPlayability,
+  cardPlayability,
+  chantPlayability,
   chantTechnique,
   createGame,
   endTurnFully,
@@ -11,11 +15,10 @@ import {
   playCard,
   resolveBurst,
   resolveChoice,
+  resolveChoiceAlt,
   resolveRebuild,
 } from './game/engine';
-import { canPlayWithCooldown, modifier } from './game/internal';
 import type { CardInstance, CharacterId, GameState, LogEntry, Seat } from './game/types';
-import { RULES } from './game/types';
 import { P2PService } from './p2p/p2p-service';
 import type { GameAction, P2PMessage } from './p2p/p2p-types';
 
@@ -362,6 +365,43 @@ export class GameStore {
     this.afterChange();
   }
 
+  /** 玩家在選擇對話框裡選了替代選項（例如「不發動」） */
+  chooseAlt(): void {
+    if (this.isGuest()) {
+      this.p2p.send({ type: 'ACTION', seat: 'npc', action: { type: 'CHOOSE_ALT' } });
+      return;
+    }
+    this.executeChooseAlt();
+  }
+
+  executeChooseAlt(): void {
+    const s = this._state();
+    if (!s.pending?.alt) return;
+
+    resolveChoiceAlt(s);
+    this.publish(s);
+    this.afterChange();
+  }
+
+  /** 發動我方裝備的能力（主要階段橫置發動） */
+  activate(iid: number): void {
+    if (!this.playerCanAct()) return;
+    if (this.isGuest()) {
+      this.p2p.send({ type: 'ACTION', seat: 'npc', action: { type: 'ACTIVATE', iid } });
+      return;
+    }
+    this.executeActivate(this.mySeat(), iid);
+  }
+
+  executeActivate(seat: Seat, iid: number): void {
+    this.mutate((s) => activateEquipment(s, seat, iid));
+  }
+
+  /** 我方這張裝備現在能不能發動 */
+  canActivate(iid: number): boolean {
+    return this.playerCanAct() && activationPlayability(this._state(), this.mySeat(), iid).ok;
+  }
+
   /** 玩家在重構對話框裡挑好要加入手牌的生命卡 */
   chooseLifeCard(iid: number): void {
     if (this.isGuest()) {
@@ -535,42 +575,8 @@ export class GameStore {
     }
     if (s.phase !== 'main') return false;
 
-    return this.mainPhasePlayable(s, inst);
-  }
-
-  /** 主要階段的可出牌判斷（與 engine.playCard 的檢查保持一致） */
-  private mainPhasePlayable(s: GameState, inst: CardInstance): boolean {
-    const seat = this.mySeat();
-    const def = card(inst.defId);
-    const side = s.sides[seat];
-
-    if (!canPlayWithCooldown(s, seat, inst.defId)) return false;
-
-    if (def.kind === 'technique') {
-      if (!def.chant || side.chantsUsedThisTurn >= RULES.chantsPerTurn) return false;
-      const chantCost = Math.max(0, def.chant.cost + modifier(s, seat, 'cost'));
-      return side.life.filter((l) => !l.tapped).length >= chantCost;
-    }
-
-    if (def.kind === 'event' && side.eventsUsedThisTurn >= 1) return false;
-
-    if (def.kind === 'equipment') {
-      const slot = def.slot;
-      if (!slot) return false;
-      if (side.level < (def.levelRequirement ?? 1)) return false;
-      const used = side.equipment.filter((c) => card(c.defId).slot === slot).length;
-      const limits: Record<string, number> = { weapon: 1, helmet: 1, glove: 1, boots: 1, accessory: 2 };
-      if (used >= (limits[slot] ?? 1)) return false;
-    }
-
-    let cost = Math.max(0, def.cost + modifier(s, seat, 'cost'));
-    if (side.freeNextCards.includes(def.id)) cost = 0;
-    if (side.life.filter((l) => !l.tapped).length < cost) return false;
-
-    const angerCost = def.angerCost ?? 0;
-    if (side.anger.length < angerCost) return false;
-
-    return true;
+    // 主要階段：招式卡走詠唱，其他卡走一般打出（檢查與 engine 共用，不會不一致）
+    return def.kind === 'technique' ? chantPlayability(s, seat, iid).ok : cardPlayability(s, seat, iid).ok;
   }
 
   // ─────────────────────────────────────────────
@@ -668,6 +674,12 @@ export class GameStore {
       case 'CHOOSE_CARD':
         this.executeChooseCard(action.iid);
         break;
+      case 'CHOOSE_ALT':
+        this.executeChooseAlt();
+        break;
+      case 'ACTIVATE':
+        this.executeActivate('npc', action.iid);
+        break;
       case 'CHOOSE_LIFE':
         this.executeChooseLife(action.iid);
         break;
@@ -707,6 +719,8 @@ export class GameStore {
     this._state.set({
       ...s,
       combat,
+      // 事件區的指示物是就地修改的，不換參照的話依賴它的 computed 收不到通知
+      eventZone: s.eventZone ? { ...s.eventZone } : null,
       sides: {
         player: { ...s.sides.player },
         npc: { ...s.sides.npc },

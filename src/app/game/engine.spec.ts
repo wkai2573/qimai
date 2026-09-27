@@ -18,18 +18,23 @@ import {
   validateQuestDeck,
 } from './cards';
 import { beginCombat, finishCombat, playTechnique } from './combat';
+import { addEventCounters, equipCard } from './effects';
 import {
+  activateEquipment,
   beginTurn,
+  cardPlayability,
   chantTechnique,
   createGame,
   endTurnFully,
+  enterCombat,
   evaluateAllQuests,
   playCard,
   resolveBurst,
   resolveChoice,
+  resolveChoiceAlt,
   resolveRebuild,
 } from './engine';
-import { draw, makeInstance } from './internal';
+import { chantCost, computeCost, draw, makeInstance, millToAnger, modifier, recover } from './internal';
 import type { GameState, Seat } from './types';
 import { OTHER_SEAT, RULES } from './types';
 
@@ -464,7 +469,7 @@ describe('重構與勝負', () => {
     expect(g.phase).toBe('ended');
   });
 
-  it('棄牌區也是空的時候無法重建牌組，該方敗北', () => {
+  it('重構後牌組還是 0 張（棄牌區沒卡可洗）時，該方敗北', () => {
     const g = createGame(1, { manualLifeSetup: false });
     const side = g.sides.player;
 
@@ -1011,5 +1016,452 @@ describe('角色特異機制', () => {
     // 冷卻歸零，自動移入棄牌區
     expect(g.sides.player.cooldownZone.length).toBe(0);
     expect(g.sides.player.discard.some((c) => c.iid === cdCard.iid)).toBe(true);
+  });
+});
+
+// ─────────────────────────────────────────────
+// 重構時的傷害接續
+// ─────────────────────────────────────────────
+
+describe('重構：傷害打到一半牌組見底', () => {
+  function fill(g: GameState, n: number, id = 'cm_xinjue') {
+    return Array.from({ length: n }, () => makeInstance(g, id));
+  }
+
+  for (const seat of ['npc', 'player'] as const) {
+    it(`${seat === 'player' ? '玩家（要自己選生命卡）' : 'NPC（自動）'}：牌組 3 張、棄牌 20 張時受到 10 點傷害 → 先丟 3 張，重構，再用新牌組丟 7 張`, () => {
+      const g = createGame(1, { manualLifeSetup: false });
+      const side = g.sides[seat];
+      side.deck = fill(g, 3);
+      side.discard = fill(g, 20);
+      side.anger = [];
+
+      millToAnger(g, seat, 10);
+      if (g.pendingRebuild) resolveRebuild(g, side.life[0].card.iid);
+
+      expect(g.winner).toBeNull();
+      expect(side.life.length).toBe(2);
+      expect(side.anger.length).toBe(10);
+      expect(side.deck.length).toBe(13);
+      expect(side.discard.length).toBe(0);
+    });
+  }
+
+  it('防禦判定翻牌時就要重構、又要等玩家選生命卡：傷害會在重構完成後補算，不會消失', () => {
+    const g = createGame(1, { manualLifeSetup: false });
+    const side = g.sides.player;
+    side.deck = [];
+    side.discard = fill(g, 20);
+    side.anger = [];
+
+    setupCombat(g, 'npc', ['rg_tech_bajuan']);
+    g.sides.npc.anger = fill(g, 4, 'rg_tech_nuce'); // 解放條件：怒氣 4 張
+    playTechnique(g, 'npc', g.sides.npc.hand[0].iid);
+    finishCombat(g);
+
+    expect(g.pendingRebuild?.seat).toBe('player');
+    const damage = g.combat!.damage;
+    expect(damage).toBeGreaterThan(0);
+
+    resolveRebuild(g, side.life[0].card.iid);
+    expect(side.anger.length).toBe(damage);
+    expect(g.sides.npc.stats.damageDealt).toBe(damage);
+  });
+
+  it('一方在等重構時，另一方照常抽牌', () => {
+    const g = createGame(1, { manualLifeSetup: false });
+    g.sides.player.deck = [];
+    g.sides.player.discard = fill(g, 5);
+    draw(g, 'player', 1);
+    expect(g.pendingRebuild?.seat).toBe('player');
+
+    const before = g.sides.npc.hand.length;
+    expect(draw(g, 'npc', 2)).toBe(2);
+    expect(g.sides.npc.hand.length).toBe(before + 2);
+  });
+});
+
+// ─────────────────────────────────────────────
+// 事件區、裝備發動、指示物與擴充卡
+// ─────────────────────────────────────────────
+
+/** 讓某一方進入主要階段（可以直接出牌） */
+function mainPhaseFor(g: GameState, seat: Seat): void {
+  g.activeSeat = seat;
+  g.phase = 'main';
+  g.sides[seat].eventsUsedThisTurn = 0;
+}
+
+function playFromHand(g: GameState, seat: Seat, defId: string) {
+  const inst = g.sides[seat].hand.find((c) => c.defId === defId)!;
+  return playCard(g, seat, inst.iid);
+}
+
+describe('事件區與持續時間', () => {
+  it('事件結算後進入事件區；雙方共用一格，新事件取代舊事件，舊事件回到持有者的棄牌區', () => {
+    const g = createGame(1, { manualLifeSetup: false });
+
+    mainPhaseFor(g, 'player');
+    setHand(g, 'player', ['cm_jinchan']);
+    expect(playFromHand(g, 'player', 'cm_jinchan').ok).toBe(true);
+    expect(g.eventZone?.card.defId).toBe('cm_jinchan');
+    expect(g.eventZone?.owner).toBe('player');
+
+    mainPhaseFor(g, 'npc');
+    setHand(g, 'npc', ['mg_lichang']);
+    expect(playFromHand(g, 'npc', 'mg_lichang').ok).toBe(true);
+    expect(g.eventZone?.card.defId).toBe('mg_lichang');
+    expect(g.eventZone?.owner).toBe('npc');
+    expect(g.sides.player.discard.some((c) => c.defId === 'cm_jinchan')).toBe(true);
+  });
+
+  it('雙方回合結束各放 1 個持續時間指示物，達到持續時間就捨棄', () => {
+    const g = createGame(1, { manualLifeSetup: false });
+    mainPhaseFor(g, 'player');
+    setHand(g, 'player', ['rg_shenshenxian']); // 持續時間 2
+    playFromHand(g, 'player', 'rg_shenshenxian');
+
+    endTurnFully(g); // 我方回合結束 → 1
+    expect(g.eventZone?.counters).toBe(1);
+
+    endTurnFully(g); // 對手回合結束 → 2，到期
+    expect(g.eventZone).toBeNull();
+    expect(g.sides.player.discard.some((c) => c.defId === 'rg_shenshenxian')).toBe(true);
+  });
+
+  it('祕法加速讓事件提前到期；本回合有事件到期時，冰牆的詠唱 +5', () => {
+    const g = createGame(1, { manualLifeSetup: false });
+    g.eventZone = { card: makeInstance(g, 'rg_shenshenxian'), owner: 'npc', counters: 0 };
+    mainPhaseFor(g, 'player');
+    setHand(g, 'player', ['mg_jiasu', 'mg_el_bingqiang']);
+
+    playFromHand(g, 'player', 'mg_jiasu');
+    expect(g.eventZone).toBeNull();
+    expect(g.eventExpiredThisTurn).toBe(true);
+    expect(g.sides.npc.discard.some((c) => c.defId === 'rg_shenshenxian')).toBe(true);
+
+    const wall = g.sides.player.hand.find((c) => c.defId === 'mg_el_bingqiang')!;
+    expect(chantTechnique(g, 'player', wall.iid).ok).toBe(true);
+    enterCombat(g);
+    expect(g.combat!.chantPlays[0].damage).toBe(6);
+  });
+
+  it('整理魔導書離開事件區時，持有者依指示物數從棄牌區取回招式', () => {
+    const g = createGame(1, { manualLifeSetup: false });
+    g.eventZone = { card: makeInstance(g, 'mg_modao'), owner: 'npc', counters: 2 };
+    g.sides.npc.discard = ['mg_el_huoqiu', 'mg_el_bingzhui', 'mg_el_dianqiu'].map((id) => makeInstance(g, id));
+    const handBefore = g.sides.npc.hand.length;
+
+    mainPhaseFor(g, 'player');
+    setHand(g, 'player', ['cm_qiguan']);
+    playFromHand(g, 'player', 'cm_qiguan'); // 取代整理魔導書
+
+    expect(g.sides.npc.hand.length).toBe(handBefore + 2);
+    expect(g.sides.npc.discard.map((c) => c.defId)).toContain('mg_modao');
+  });
+
+  it('憤怒氣場：怒氣區 8 張以上才能打出', () => {
+    const g = createGame(1, { manualLifeSetup: false });
+    mainPhaseFor(g, 'player');
+    setHand(g, 'player', ['rg_nuqichang']);
+    const inst = g.sides.player.hand[0];
+
+    g.sides.player.anger = Array.from({ length: 7 }, () => makeInstance(g, 'rg_tech_nuce'));
+    expect(cardPlayability(g, 'player', inst.iid).ok).toBe(false);
+
+    g.sides.player.anger.push(makeInstance(g, 'rg_tech_nuce'));
+    expect(cardPlayability(g, 'player', inst.iid).ok).toBe(true);
+  });
+
+  it('應援團：金項鍊與 +9棍棒減費；在事件區時招式免費（含怒氣費用）且回復 +1', () => {
+    const g = createGame(1, { manualLifeSetup: false });
+    const side = g.sides.player;
+    equipCard(g, 'player', makeInstance(g, 'rg_eq_jinxianglian'));
+    equipCard(g, 'player', makeInstance(g, 'rg_eq_gunbang'));
+    expect(computeCost(g, 'player', card('rg_yingyuan')).life).toBe(1);
+
+    side.anger = Array.from({ length: 4 }, () => makeInstance(g, 'rg_tech_nuce'));
+    mainPhaseFor(g, 'player');
+    setHand(g, 'player', ['rg_yingyuan']);
+    expect(playFromHand(g, 'player', 'rg_yingyuan').ok).toBe(true);
+    expect(side.anger.length).toBe(0); // 捨棄我方怒氣區全部卡片
+
+    expect(computeCost(g, 'player', card('rg_tech_nubaofa'))).toEqual({ life: 0, anger: 0 });
+
+    side.anger = Array.from({ length: 3 }, () => makeInstance(g, 'rg_tech_nuce'));
+    expect(recover(g, 'player', 1)).toBe(2);
+  });
+});
+
+describe('裝備：橫置、發動與觸發', () => {
+  it('頭巾發動會橫置並把棄牌區移入怒氣區；夾腳拖鞋在裝備橫置時回復 1；重置階段復原', () => {
+    const g = createGame(1, { manualLifeSetup: false });
+    const side = g.sides.player;
+    const bandana = makeInstance(g, 'rg_eq_toujin');
+    equipCard(g, 'player', bandana);
+    equipCard(g, 'player', makeInstance(g, 'rg_eq_jiaotuo'));
+    side.discard = ['cm_xinjue', 'cm_xinjue', 'cm_xinjue'].map((id) => makeInstance(g, id));
+    side.anger = [makeInstance(g, 'rg_tech_nuce')];
+    const deckBefore = side.deck.length;
+
+    mainPhaseFor(g, 'player');
+    expect(activateEquipment(g, 'player', bandana.iid).ok).toBe(true);
+    expect(side.tappedEquipment).toContain(bandana.iid);
+    expect(side.deck.length).toBe(deckBefore + 1); // 夾腳拖鞋：回復 1
+    expect(side.anger.length).toBe(2); // 頭巾：棄牌區 2 張進怒氣區
+
+    expect(activateEquipment(g, 'player', bandana.iid).ok).toBe(false); // 已橫置
+
+    beginTurn(g, 'player');
+    expect(side.tappedEquipment).toEqual([]);
+  });
+
+  it('金項鍊：支付 1 費橫置、橫置時回復 1；我方打出事件時重置', () => {
+    const g = createGame(1, { manualLifeSetup: false });
+    const side = g.sides.player;
+    const necklace = makeInstance(g, 'rg_eq_jinxianglian');
+    equipCard(g, 'player', necklace);
+    side.anger = [makeInstance(g, 'rg_tech_nuce'), makeInstance(g, 'rg_tech_nuce')];
+
+    mainPhaseFor(g, 'player');
+    expect(activateEquipment(g, 'player', necklace.iid).ok).toBe(true);
+    expect(side.life.filter((l) => l.tapped).length).toBe(1);
+    expect(side.anger.length).toBe(1);
+
+    setHand(g, 'player', ['cm_qiguan']);
+    playCard(g, 'player', side.hand[0].iid);
+    expect(side.tappedEquipment).not.toContain(necklace.iid);
+  });
+
+  it('藥膏貼布：回復 +1；對手回合結束時放到怒氣區底並失去加成', () => {
+    const g = createGame(1, { manualLifeSetup: false });
+    const patch = makeInstance(g, 'rg_eq_yaogao');
+    equipCard(g, 'player', patch);
+    expect(modifier(g, 'player', 'recoverAmount')).toBe(1);
+
+    mainPhaseFor(g, 'npc');
+    endTurnFully(g);
+
+    expect(g.sides.player.equipment).toEqual([]);
+    expect(g.sides.player.anger[0].iid).toBe(patch.iid);
+    expect(modifier(g, 'player', 'recoverAmount')).toBe(0);
+  });
+
+  it('繃帶：牌組見底要重構前，放到怒氣區底並捨棄怒氣區 10 張，讓新牌組變厚', () => {
+    const g = createGame(1, { manualLifeSetup: false });
+    const side = g.sides.player;
+    equipCard(g, 'player', makeInstance(g, 'rg_eq_bengdai'));
+    side.life = [side.life[0]]; // 只剩一張，自動重構
+    side.deck = [];
+    side.discard = [];
+    side.anger = Array.from({ length: 12 }, () => makeInstance(g, 'rg_tech_nuce'));
+
+    draw(g, 'player', 1);
+
+    expect(g.winner).toBeNull();
+    expect(side.equipment).toEqual([]);
+    expect(side.anger.length).toBe(3); // 12 + 繃帶 − 10
+    expect(side.deck.length).toBe(9); // 10 張洗成牌組，再抽掉 1 張
+  });
+
+  it('小刀：事件區有我方事件時，招式傷害 +1、密奧義再 +2', () => {
+    const g = createGame(1, { manualLifeSetup: false });
+    equipCard(g, 'player', makeInstance(g, 'rg_eq_xiaodao'));
+    expect(modifier(g, 'player', 'techniqueDamage')).toBe(0);
+
+    g.eventZone = { card: makeInstance(g, 'mg_modao'), owner: 'player', counters: 0 };
+    expect(modifier(g, 'player', 'techniqueDamage')).toBe(1);
+    expect(modifier(g, 'player', 'hiddenDamage')).toBe(2);
+  });
+
+  it('打老婆吊嘎：對手的事件在事件區時，我方打出事件要多選 1 張手牌放到怒氣區底', () => {
+    const g = createGame(1, { manualLifeSetup: false });
+    equipCard(g, 'npc', makeInstance(g, 'rg_eq_diaoga'));
+    g.eventZone = { card: makeInstance(g, 'mg_modao'), owner: 'npc', counters: 0 };
+
+    mainPhaseFor(g, 'player');
+    setHand(g, 'player', ['cm_qiguan']);
+    expect(cardPlayability(g, 'player', g.sides.player.hand[0].iid).ok).toBe(false);
+
+    setHand(g, 'player', ['cm_qiguan', 'cm_xinjue']);
+    const extra = g.sides.player.hand[1];
+    expect(playCard(g, 'player', g.sides.player.hand[0].iid).ok).toBe(true);
+    expect(g.pending?.kind).toBe('handToAnger');
+    resolveChoice(g, extra.iid);
+    expect(g.sides.player.anger[0].iid).toBe(extra.iid);
+  });
+
+  it('防滑手套：我方事件在事件區時，對手防禦值 − 我方最後一張招式的防禦值', () => {
+    const g = createGame(1, { manualLifeSetup: false });
+    equipCard(g, 'player', makeInstance(g, 'rg_eq_fanghua'));
+    g.eventZone = { card: makeInstance(g, 'mg_modao'), owner: 'player', counters: 0 };
+    stackDeckTop(g, 'npc', ['cm_tech_zhengquan']); // 防禦 2
+
+    setupCombat(g, 'player', ['rg_tech_nuce']); // 防禦 1
+    playTechnique(g, 'player', g.sides.player.hand[0].iid);
+    finishCombat(g);
+
+    expect(g.combat!.defenseGuard).toBe(1);
+  });
+
+  it('修羅百兵：此擊傷害 + 橫置狀態的裝備張數', () => {
+    const g = createGame(1, { manualLifeSetup: false });
+    const side = g.sides.player;
+    for (const id of ['rg_eq_toujin', 'rg_eq_pijiu', 'rg_eq_jiaotuo']) equipCard(g, 'player', makeInstance(g, id));
+    side.tappedEquipment = [side.equipment[0].iid, side.equipment[1].iid];
+
+    setupCombat(g, 'player', ['rg_tech_baibing']);
+    expect(playTechnique(g, 'player', side.hand[0].iid).ok).toBe(true);
+    expect(g.combat!.plays[0].damage).toBe(7);
+  });
+});
+
+describe('秘法：詠唱與指示物', () => {
+  it('秘法力場：我方詠唱時放「被詠唱卡防禦值」的指示物，防禦時防禦值 + 指示物數', () => {
+    const g = createGame(1, { manualLifeSetup: false });
+    mainPhaseFor(g, 'player');
+    setHand(g, 'player', ['mg_lichang', 'mg_el_bingzhui']);
+    playCard(g, 'player', g.sides.player.hand[0].iid);
+    chantTechnique(g, 'player', g.sides.player.hand[0].iid);
+
+    // 冰錐的詠唱效果 1 + 冰錐防禦值 3
+    expect(g.eventZone?.counters).toBe(4);
+
+    stackDeckTop(g, 'player', ['cm_tech_zhengquan']); // 防禦 2
+    setupCombat(g, 'npc', ['rg_tech_nuce']);
+    playTechnique(g, 'npc', g.sides.npc.hand[0].iid);
+    finishCombat(g);
+    expect(g.combat!.defenseGuard).toBe(6);
+  });
+
+  it('秘法法袍：秘法力場的指示物改放到法袍上，受到傷害時 1 個指示物抵 1 點', () => {
+    const g = createGame(1, { manualLifeSetup: false });
+    const side = g.sides.player;
+    const robe = makeInstance(g, 'mg_eq_mipao');
+    equipCard(g, 'player', robe);
+    g.eventZone = { card: makeInstance(g, 'mg_lichang'), owner: 'player', counters: 0 };
+
+    addEventCounters(g, 3, '測試');
+    expect(g.eventZone.counters).toBe(0);
+    expect(side.equipCounters[robe.iid]).toBe(3);
+
+    const angerBefore = side.anger.length;
+    millToAnger(g, 'player', 2);
+    expect(side.equipCounters[robe.iid]).toBe(1);
+    expect(side.anger.length).toBe(angerBefore);
+  });
+
+  it('秘法帽：我方事件放指示物時跟著放，受到傷害時 2 個指示物抵 1 點', () => {
+    const g = createGame(1, { manualLifeSetup: false });
+    const side = g.sides.player;
+    const hat = makeInstance(g, 'mg_eq_mimao');
+    equipCard(g, 'player', hat);
+    g.eventZone = { card: makeInstance(g, 'mg_modao'), owner: 'player', counters: 0 };
+
+    addEventCounters(g, 3, '測試');
+    expect(g.eventZone.counters).toBe(3);
+    expect(side.equipCounters[hat.iid]).toBe(3);
+
+    const angerBefore = side.anger.length;
+    millToAnger(g, 'player', 2); // 2 個指示物抵 1 點，剩 1 點打進來
+    expect(side.equipCounters[hat.iid]).toBe(1);
+    expect(side.anger.length).toBe(angerBefore + 1);
+  });
+
+  it('高速詠唱讓詠唱費用改為 1；賢者法杖付 1 費後本回合可額外詠唱 1 次', () => {
+    const g = createGame(1, { manualLifeSetup: false });
+    const side = g.sides.player;
+    const staff = makeInstance(g, 'mg_eq_xianzhang');
+    equipCard(g, 'player', staff);
+    mainPhaseFor(g, 'player');
+    setHand(g, 'player', ['mg_gaosu', 'mg_el_huoqiang', 'mg_el_bingqiang']);
+
+    playCard(g, 'player', side.hand[0].iid);
+    expect(chantCost(g, 'player', card('mg_el_huoqiang'))).toBe(1);
+
+    expect(chantTechnique(g, 'player', side.hand[0].iid).ok).toBe(true);
+    expect(chantTechnique(g, 'player', side.hand[0].iid).ok).toBe(false); // 次數用完
+
+    expect(activateEquipment(g, 'player', staff.iid).ok).toBe(true);
+    expect(chantTechnique(g, 'player', side.hand[0].iid).ok).toBe(true);
+  });
+
+  it('賢者法袍：詠唱費用可以改用橫置裝備支付', () => {
+    const g = createGame(1, { manualLifeSetup: false });
+    const side = g.sides.player;
+    equipCard(g, 'player', makeInstance(g, 'mg_eq_xianpao'));
+    equipCard(g, 'player', makeInstance(g, 'cm_eq_tieyi'));
+    for (const l of side.life) l.tapped = true;
+
+    mainPhaseFor(g, 'player');
+    setHand(g, 'player', ['mg_el_huoqiang']); // 詠唱(2)
+    expect(chantTechnique(g, 'player', side.hand[0].iid).ok).toBe(true);
+    expect(side.tappedEquipment.length).toBe(2);
+  });
+
+  it('火牆詠唱後，本回合其他名稱含「火」的招式 +2，火牆自己不加', () => {
+    const g = createGame(1, { manualLifeSetup: false });
+    mainPhaseFor(g, 'player');
+    setHand(g, 'player', ['mg_el_huoqiang', 'mg_el_huoqiu']);
+    chantTechnique(g, 'player', g.sides.player.hand[0].iid);
+
+    enterCombat(g);
+    expect(g.combat!.chantPlays[0].damage).toBe(1);
+
+    playTechnique(g, 'player', g.sides.player.hand[0].iid);
+    expect(g.combat!.plays[0].damage).toBe(4);
+  });
+
+  it('完全詠唱：獲得本回合打出招式的詠唱加成，並算作額外詠唱 1 次', () => {
+    const g = createGame(1, { manualLifeSetup: false });
+    const side = g.sides.player;
+    mainPhaseFor(g, 'player');
+    setHand(g, 'player', ['mg_el_huoqiu', 'mg_tech_wanquan']);
+    chantTechnique(g, 'player', side.hand[0].iid); // 火球：詠唱加成 +2
+
+    enterCombat(g);
+    expect(playTechnique(g, 'player', side.hand[0].iid).ok).toBe(true);
+    expect(g.combat!.plays[0].damage).toBe(3); // 基礎 1 + 2
+    expect(side.stats.chants).toBe(2);
+  });
+
+  it('電光石火：捨棄手牌，棄牌區的電／火招式洗回牌組，此擊 + 洗回的張數', () => {
+    const g = createGame(1, { manualLifeSetup: false });
+    const side = g.sides.player;
+    mainPhaseFor(g, 'player');
+    setHand(g, 'player', ['mg_el_huoqiu', 'mg_tech_shandian', 'mg_tech_dianguang', 'cm_xinjue']);
+    side.discard = ['mg_el_huoyu', 'mg_el_dianqiu', 'cm_tiandi'].map((id) => makeInstance(g, id));
+
+    chantTechnique(g, 'player', side.hand[0].iid); // 火
+    enterCombat(g);
+    playTechnique(g, 'player', side.hand.find((c) => c.defId === 'mg_tech_shandian')!.iid); // 電
+    expect(playTechnique(g, 'player', side.hand.find((c) => c.defId === 'mg_tech_dianguang')!.iid).ok).toBe(true);
+
+    expect(side.hand).toEqual([]);
+    expect(side.discard.map((c) => c.defId).sort()).toEqual(['cm_tiandi', 'cm_xinjue']);
+    expect(g.combat!.plays[1].damage).toBe(7); // 5 + 洗回 2 張
+  });
+
+  it('電球：可以選「不發動」；選了就捨棄那張手牌，接著從棄牌區取回「電」招式', () => {
+    const g = createGame(1, { manualLifeSetup: false });
+    const side = g.sides.player;
+    side.discard = [makeInstance(g, 'mg_tech_shandian')];
+
+    setupCombat(g, 'player', ['mg_el_dianqiu', 'cm_xinjue']);
+    playTechnique(g, 'player', side.hand[0].iid);
+    expect(g.pending?.alt?.label).toBe('不發動');
+    resolveChoiceAlt(g);
+    expect(g.pending).toBeNull();
+    expect(side.hand.map((c) => c.defId)).toEqual(['cm_xinjue']);
+
+    const g2 = createGame(1, { manualLifeSetup: false });
+    const side2 = g2.sides.player;
+    side2.discard = [makeInstance(g2, 'mg_tech_shandian')];
+    setupCombat(g2, 'player', ['mg_el_dianqiu', 'cm_xinjue']);
+    playTechnique(g2, 'player', side2.hand[0].iid);
+    resolveChoice(g2, side2.hand[0].iid); // 捨棄靜心凝氣
+    expect(g2.pending?.kind).toBe('salvage');
+    resolveChoice(g2, g2.pending!.candidates.find((c) => c.defId === 'mg_tech_shandian')!.iid);
+    expect(side2.hand.map((c) => c.defId)).toEqual(['mg_tech_shandian']);
   });
 });

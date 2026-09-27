@@ -157,7 +157,9 @@
             @for (e of opponentSide().equipment; track e.iid) {
               <button
                 type="button"
-                class="flex w-11 cursor-help flex-col items-center gap-0.5 rounded border border-sky-600/50 bg-sky-950/40 px-0.5 py-0.5 transition hover:border-sky-300"
+                class="life-card relative flex w-11 cursor-help flex-col items-center gap-0.5 rounded border border-sky-600/50 bg-sky-950/40 px-0.5 py-0.5 transition hover:border-sky-300"
+                [class.life-card--tapped]="isEquipTapped(store.opponentSeat(), e.iid)"
+                [title]="isEquipTapped(store.opponentSeat(), e.iid) ? '已橫置（重置階段復原）' : ''"
                 (mouseenter)="onChipHover($event, e.iid)"
                 (mouseleave)="onCardHover(null)"
               >
@@ -165,6 +167,9 @@
                 <span class="w-full truncate text-center text-[7px] leading-tight text-sky-100">
                   {{ nameOf(e.defId) }}
                 </span>
+                @if (equipCounters(store.opponentSeat(), e.iid); as n) {
+                  <span class="counter-badge" title="持續時間指示物">{{ n }}</span>
+                }
               </button>
             }
           </div>
@@ -211,7 +216,7 @@
           }
         </div>
 
-        <!-- 置中：僅 [牌組] [怒氣] [棄牌] [LEVEL] 4個牌堆 -->
+        <!-- 置中：[牌組] [怒氣] [棄牌] [LEVEL] [任務] 5 個牌堆 -->
         <div class="pile-stacks-center flex items-center justify-center gap-2 sm:gap-3">
           <!-- 牌組：內容是隱藏資訊，不提供檢視 -->
           <div
@@ -262,6 +267,16 @@
             <span class="text-sm font-bold tabular-nums text-amber-300">Lv{{ opponentSide().level }}</span>
             <span class="text-[9px] text-slate-500">LEVEL</span>
           </button>
+
+          <!-- 任務牌組：只顯示張數，內容為隱藏資訊 -->
+          <div
+            class="pile-stack pile-stack--quest"
+            [class.pile-stack--empty]="opponentSide().questDeck.length === 0"
+            [title]="'對手任務牌組剩 ' + opponentSide().questDeck.length + ' 張（內容為隱藏資訊，不可查看）'"
+          >
+            <span class="text-sm font-bold tabular-nums text-amber-400">{{ opponentSide().questDeck.length }}</span>
+            <span class="text-[9px] text-slate-500">任務</span>
+          </div>
         </div>
       </div>
 
@@ -347,6 +362,27 @@
             <span class="text-[10px] tracking-[0.3em] text-orange-800/60">戰 鬥 區</span>
           }
         </div>
+
+        <!-- 事件區：雙方共用，同時只能有 1 張事件 -->
+        <div
+          class="flex w-[112px] shrink-0 flex-col items-center justify-center gap-1 rounded-lg border border-violet-700/50 bg-violet-950/20 px-1 py-1"
+          title="事件區（雙方共用，同時只能有 1 張）。雙方回合結束時放 1 個持續時間指示物，達到持續時間就捨棄。"
+        >
+          @if (eventZone(); as ev) {
+            <span
+              class="text-[9px] font-bold tracking-wider"
+              [class]="ev.owner === store.mySeat() ? 'text-emerald-300' : 'text-rose-300'"
+            >
+              {{ ev.owner === store.mySeat() ? '我方事件' : '對手事件' }}
+            </span>
+            <app-card-view [inst]="ev.card" [playable]="false" [showcase]="true" [tooltip]="true" size="sm" (hoverInfo)="onCardHover($event)" />
+            <span class="text-[9px] font-bold tabular-nums text-violet-200" title="持續時間指示物 / 持續時間">
+              ⏳ {{ ev.counters }}{{ eventDuration() !== undefined ? ' / ' + eventDuration() : '' }}
+            </span>
+          } @else {
+            <span class="text-[10px] tracking-[0.3em] text-violet-800/70">事 件 區</span>
+          }
+        </div>
       </div>
 
       <div class="duel-line shrink-0"></div>
@@ -379,7 +415,7 @@
           }
         </div>
 
-        <!-- 置中：僅 [牌組] [怒氣] [棄牌] [LEVEL] 4個牌堆 -->
+        <!-- 置中：[牌組] [怒氣] [棄牌] [LEVEL] [任務] 5 個牌堆 -->
         <div class="pile-stacks-center flex items-center justify-center gap-2 sm:gap-3">
           <div
             class="pile-stack pile-stack--deck"
@@ -429,6 +465,16 @@
             <span class="text-sm font-bold tabular-nums text-amber-300">Lv{{ mySide().level }}</span>
             <span class="text-[9px] text-slate-500">LEVEL</span>
           </button>
+
+          <!-- 任務牌組：只顯示張數，內容為隱藏資訊 -->
+          <div
+            class="pile-stack pile-stack--quest"
+            [class.pile-stack--empty]="mySide().questDeck.length === 0"
+            [title]="'任務牌組剩 ' + mySide().questDeck.length + ' 張（內容為隱藏資訊，不可查看）'"
+          >
+            <span class="text-sm font-bold tabular-nums text-amber-400">{{ mySide().questDeck.length }}</span>
+            <span class="text-[9px] text-slate-500">任務</span>
+          </div>
         </div>
       </div>
 
@@ -491,7 +537,12 @@
             @for (e of mySide().equipment; track e.iid) {
               <button
                 type="button"
-                class="flex w-11 cursor-help flex-col items-center gap-0.5 rounded border border-sky-600/50 bg-sky-950/40 px-0.5 py-0.5 transition hover:border-sky-300"
+                class="life-card relative flex w-11 flex-col items-center gap-0.5 rounded border border-sky-600/50 bg-sky-950/40 px-0.5 py-0.5 transition hover:border-sky-300"
+                [class.life-card--tapped]="isEquipTapped(store.mySeat(), e.iid)"
+                [class.equip-activatable]="store.canActivate(e.iid)"
+                [class.cursor-help]="!store.canActivate(e.iid)"
+                [title]="equipTitle(e.iid)"
+                (click)="activateEquipment(e.iid)"
                 (mouseenter)="onChipHover($event, e.iid)"
                 (mouseleave)="onCardHover(null)"
               >
@@ -499,6 +550,9 @@
                 <span class="w-full truncate text-center text-[7px] leading-tight text-sky-100">
                   {{ nameOf(e.defId) }}
                 </span>
+                @if (equipCounters(store.mySeat(), e.iid); as n) {
+                  <span class="counter-badge" title="持續時間指示物">{{ n }}</span>
+                }
               </button>
             }
           </div>
@@ -836,12 +890,26 @@
             }
           </div>
 
+          @if (pc.alt) {
+            <div class="mt-2 flex justify-center">
+              <button type="button" class="btn btn--slate" (click)="chooseAlt()">{{ pc.alt.label }}</button>
+            </div>
+          }
+
           @if (pc.kind === 'search') {
             <p class="mt-2 text-center text-[10px] text-slate-500">沒選到的卡會進入棄牌區</p>
           } @else if (pc.kind === 'salvage') {
             <p class="mt-2 text-center text-[10px] text-slate-500">選擇的卡會加入手牌</p>
           } @else if (pc.kind === 'handToAnger') {
             <p class="mt-2 text-center text-[10px] text-slate-500">選擇的卡會置於怒氣區底</p>
+          } @else if (pc.kind === 'discardFromHand') {
+            <p class="mt-2 text-center text-[10px] text-slate-500">選擇的卡會進入棄牌區</p>
+          } @else if (pc.kind === 'chantFromDiscard') {
+            <p class="mt-2 text-center text-[10px] text-slate-500">選擇的卡會支付詠唱費用後詠唱打出</p>
+          } @else if (pc.kind === 'freeEquip') {
+            <p class="mt-2 text-center text-[10px] text-slate-500">選擇的裝備會不支付費用直接裝備</p>
+          } @else if (pc.kind === 'oppDiscardToAnger') {
+            <p class="mt-2 text-center text-[10px] text-slate-500">選擇的卡會放到對手的怒氣區底</p>
           } @else {
             <p class="mt-2 text-center text-[10px] text-slate-500">
               這 3 張就是你的血量，也是支付費用的來源

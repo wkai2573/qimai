@@ -18,9 +18,28 @@ import {
   expandDeck,
 } from './cards';
 import { beginCombat, finishCombat, playTechnique, clearCombat } from './combat';
-import { applyEffects } from './effects';
 import {
+  applyEffect,
+  applyEffects,
+  chantFromDiscard,
+  chantResources,
+  checkCondition,
+  equipBlockReason,
+  equipCard,
+  equipFromHand,
+  payChantCost,
+  performChant,
+  placeEvent,
+  tapEquipment,
+  tickEventZone,
+} from './effects';
+import {
+  advancePending,
   canPlayWithCooldown,
+  chantCost,
+  chantsLeft,
+  computeCost,
+  consumeOnceCostBuffs,
   draw,
   emptyStats,
   endGame,
@@ -32,7 +51,9 @@ import {
   nameOf,
   payAngerCost,
   payLifeCost,
+  readyAllEquipment,
   readyAllLife,
+  removeEquipment,
   resetTurnStats,
   resolveRebuild,
   routeCardAfterPlay,
@@ -42,8 +63,8 @@ import {
   withRng,
 } from './internal';
 import { evaluateQuest, revealNextQuest } from './quests';
-import type { CharacterId, GameState, PendingChoice, Seat, SideState } from './types';
-import { EQUIP_LABEL, EQUIP_LIMITS, OTHER_SEAT, RULES } from './types';
+import type { CardDef, CharacterId, GameState, PendingChoice, Seat, SideState } from './types';
+import { OTHER_SEAT, RULES } from './types';
 import type { PlayResult } from './combat';
 
 // ─────────────────────────────────────────────
@@ -61,6 +82,8 @@ function emptySide(seat: Seat, character: CharacterId = 'rage'): SideState {
     anger: [],
     discard: [],
     equipment: [],
+    tappedEquipment: [],
+    equipCounters: {},
     levelZone: [],
     questDeck: [],
     currentQuest: null,
@@ -124,7 +147,10 @@ export function createGame(seed: number, opts: CreateGameOptions = {}): GameStat
     log: [],
     nextIid: 1,
     pending: null,
+    pendingQueue: [],
     pendingRebuild: null,
+    eventZone: null,
+    eventExpiredThisTurn: false,
   };
 
   log(state, null, `對局開始（seed ${seed}）。`, 'system');
@@ -233,10 +259,50 @@ export function resolveChoice(state: GameState, iid: number): void {
   pending.selected.push(iid);
   if (pending.selected.length < pending.pick) return;
 
-  if (pending.kind === 'search') finishSearchChoice(state, pending);
-  else if (pending.kind === 'salvage') finishSalvageChoice(state, pending);
-  else if (pending.kind === 'handToAnger') finishHandToAngerChoice(state, pending);
-  else finishLifeSetupChoice(state, pending);
+  switch (pending.kind) {
+    case 'search':
+      finishSearchChoice(state, pending);
+      break;
+    case 'salvage':
+      finishSalvageChoice(state, pending);
+      break;
+    case 'handToAnger':
+      finishHandToAngerChoice(state, pending);
+      break;
+    case 'discardFromHand':
+      finishDiscardChoice(state, pending);
+      break;
+    case 'chantFromDiscard':
+      chantFromDiscard(state, pending.seat, pending.selected[0]);
+      advancePending(state);
+      break;
+    case 'freeEquip':
+      equipFromHand(state, pending.seat, pending.selected[0], pending.source ?? '免費裝備');
+      advancePending(state);
+      break;
+    case 'oppDiscardToAnger':
+      finishOppDiscardToAngerChoice(state, pending);
+      break;
+    default:
+      finishLifeSetupChoice(state, pending);
+      return;
+  }
+
+  // 「如果這麼做，則…」：選完之後接著結算
+  applyEffects(state, pending.seat, pending.then, pending.source ?? '');
+}
+
+/**
+ * 選擇替代選項（例如「不發動」「改為捨棄牌組頂 4 張」）。
+ * 不會結算 then（因為沒有「這麼做」）。
+ */
+export function resolveChoiceAlt(state: GameState): void {
+  const pending = state.pending;
+  if (!pending?.alt || state.winner) return;
+
+  log(state, pending.seat, `${seatLabel(pending.seat)}選擇「${pending.alt.label}」。`, 'info');
+  advancePending(state);
+  applyEffects(state, pending.seat, pending.alt.effects, pending.source ?? '');
 }
 
 /** 回收結算：選中的卡從棄牌區加入手牌 */
@@ -252,20 +318,50 @@ function finishSalvageChoice(state: GameState, pending: PendingChoice): void {
       log(state, pending.seat, `${seatLabel(pending.seat)}從棄牌區取回「${nameOf(c)}」。`, 'info');
     }
   }
-  state.pending = null;
+  advancePending(state);
 }
 
-/** 迫令丟手牌到怒底結算：由對手自選的手牌移入怒氣區底 */
+/** 手牌移到怒底結算：選中的手牌移入自己的怒氣區底 */
 function finishHandToAngerChoice(state: GameState, pending: PendingChoice): void {
   const side = state.sides[pending.seat];
-  const targetIid = pending.selected[0];
-  const idx = side.hand.findIndex((c) => c.iid === targetIid);
-  if (idx >= 0) {
-    const c = side.hand.splice(idx, 1)[0];
-    side.anger.unshift(c);
-    log(state, pending.seat, `【迫令怒底】${seatLabel(pending.seat)}將手牌「${nameOf(c)}」置入怒氣區底。`, 'combat');
+  for (const targetIid of pending.selected) {
+    const idx = side.hand.findIndex((c) => c.iid === targetIid);
+    if (idx >= 0) {
+      const c = side.hand.splice(idx, 1)[0];
+      side.anger.unshift(c);
+      log(state, pending.seat, `【迫令怒底】${seatLabel(pending.seat)}將手牌「${nameOf(c)}」置入怒氣區底。`, 'combat');
+    }
   }
-  state.pending = null;
+  advancePending(state);
+}
+
+/** 自選捨棄結算：選中的手牌進棄牌區 */
+function finishDiscardChoice(state: GameState, pending: PendingChoice): void {
+  const side = state.sides[pending.seat];
+  for (const targetIid of pending.selected) {
+    const idx = side.hand.findIndex((c) => c.iid === targetIid);
+    if (idx >= 0) {
+      const c = side.hand.splice(idx, 1)[0];
+      side.discard.push(c);
+      log(state, pending.seat, `${seatLabel(pending.seat)}捨棄手牌「${nameOf(c)}」。`, 'info');
+    }
+  }
+  advancePending(state);
+}
+
+/** 對手棄牌區的卡放到對手怒氣區底 */
+function finishOppDiscardToAngerChoice(state: GameState, pending: PendingChoice): void {
+  const oppSeat = OTHER_SEAT[pending.seat];
+  const opp = state.sides[oppSeat];
+  for (const targetIid of pending.selected) {
+    const idx = opp.discard.findIndex((c) => c.iid === targetIid);
+    if (idx >= 0) {
+      const c = opp.discard.splice(idx, 1)[0];
+      opp.anger.unshift(c);
+      log(state, oppSeat, `【${pending.source ?? ''}】${seatLabel(oppSeat)}棄牌區的「${nameOf(c)}」被放到怒氣區底。`, 'combat');
+    }
+  }
+  advancePending(state);
 }
 
 /** 檢索結算：選中的進手牌，其餘依設定進棄牌區或放回牌組頂 */
@@ -279,7 +375,7 @@ function finishSearchChoice(state: GameState, pending: PendingChoice): void {
   if (pending.rest === 'deckTop') side.deck.unshift(...rest);
   else side.discard.push(...rest);
 
-  state.pending = null;
+  advancePending(state);
   log(state, pending.seat, `檢索取得「${picked.map(nameOf).join('、')}」。`, 'info');
 }
 
@@ -350,14 +446,18 @@ export function beginTurn(state: GameState, seat: Seat): void {
   resetTurnStats(state.sides.npc);
 
   const activeSide = state.sides[seat];
+  // 正常情況戰鬥歸還時就清空了；保險起見，殘留的詠唱卡送去該去的地方而不是直接消失
+  for (const c of activeSide.chantedCards) routeCardAfterPlay(state, seat, c);
   activeSide.chantedCards = [];
   activeSide.chantsUsedThisTurn = 0;
   activeSide.freeNextCards = [];
   activeSide.immuneTrickSecretNextTurn = false;
+  state.eventExpiredThisTurn = false;
 
-  // 重置階段：我方橫置的生命卡復原
+  // 重置階段：我方橫置的生命卡與裝備復原
   expireBuffs(state, seat, 'turnStart');
   readyAllLife(state, seat);
+  readyAllEquipment(state, seat);
 
   // 氣功冷卻區推進
   tickCooldowns(state, seat);
@@ -410,10 +510,31 @@ export function resolveBurst(state: GameState, use: boolean): PlayResult {
 // 主要階段
 // ─────────────────────────────────────────────
 
-export function playCard(state: GameState, seat: Seat, iid: number): PlayResult {
+/** 主要階段的共同檢查：遊戲進行中、主要階段、輪到這一方 */
+function mainPhaseGate(state: GameState, seat: Seat): PlayResult | null {
   if (state.winner) return { ok: false, reason: '遊戲已經結束' };
   if (state.phase !== 'main') return { ok: false, reason: '現在不是主要階段' };
   if (state.activeSeat !== seat) return { ok: false, reason: '不是你的回合' };
+  return null;
+}
+
+/** 對手的「打老婆吊嘎」這類效果：我方打出事件時要多付的代價是否生效 */
+function eventTaxedBy(state: GameState, seat: Seat): CardDef | null {
+  const oppSeat = OTHER_SEAT[seat];
+  for (const eq of state.sides[oppSeat].equipment) {
+    const def = card(eq.defId);
+    if (def.opponentEventTax && checkCondition(state, oppSeat, def.opponentEventTax)) return def;
+  }
+  return null;
+}
+
+/**
+ * 這張手牌現在能不能在主要階段打出（裝備／行動／事件／任務）。
+ * UI 用來反灰與提示，playCard 也用同一套檢查，兩邊不會不一致。
+ */
+export function cardPlayability(state: GameState, seat: Seat, iid: number): PlayResult {
+  const gate = mainPhaseGate(state, seat);
+  if (gate) return gate;
 
   const side = state.sides[seat];
   const inst = side.hand.find((c) => c.iid === iid);
@@ -429,47 +550,60 @@ export function playCard(state: GameState, seat: Seat, iid: number): PlayResult 
     return { ok: false, reason: '冷卻區已有同名卡，達到儲存上限' };
   }
 
-  if (def.kind === 'event' && side.eventsUsedThisTurn >= RULES.eventsPerTurn) {
-    return { ok: false, reason: `每回合最多使用 ${RULES.eventsPerTurn} 張事件卡` };
-  }
-
-  if (def.kind === 'equipment') {
-    const slot = def.slot;
-    const req = def.levelRequirement ?? 1;
-    if (!slot) return { ok: false, reason: '裝備卡缺少部位資訊' };
-    if (side.level < req) return { ok: false, reason: `需要等級 ${req} 才能使用（目前 ${side.level}）` };
-
-    const used = side.equipment.filter((c) => card(c.defId).slot === slot).length;
-    if (used >= EQUIP_LIMITS[slot]) {
-      return { ok: false, reason: `${EQUIP_LABEL[slot]}欄位已滿（上限 ${EQUIP_LIMITS[slot]} 張）` };
+  if (def.kind === 'event') {
+    if (side.eventsUsedThisTurn >= RULES.eventsPerTurn) {
+      return { ok: false, reason: `每回合最多使用 ${RULES.eventsPerTurn} 張事件卡` };
+    }
+    const tax = eventTaxedBy(state, seat);
+    if (tax && side.hand.length < 2) {
+      return { ok: false, reason: `對手的「${tax.name}」：打出事件需額外選 1 張手牌放到怒氣區底` };
     }
   }
 
-  let cost = Math.max(0, def.cost + modifier(state, seat, 'cost'));
-  const freeIdx = side.freeNextCards.indexOf(def.id);
-  if (freeIdx >= 0) {
-    cost = 0;
-    side.freeNextCards.splice(freeIdx, 1);
-    log(state, seat, `【拋下狠話】生效：「${def.name}」免費用。`, 'info');
+  if (def.kind === 'equipment') {
+    const blocked = equipBlockReason(state, seat, def);
+    if (blocked) return { ok: false, reason: blocked };
   }
 
-  if (state.sides[seat].life.filter((l) => !l.tapped).length < cost) {
-    return { ok: false, reason: `需要橫置 ${cost} 張生命卡，目前不足` };
+  if (def.playCondition && !checkCondition(state, seat, def.playCondition)) {
+    return { ok: false, reason: '打出條件尚未滿足' };
   }
 
-  const angerCost = def.angerCost ?? 0;
-  if (state.sides[seat].anger.length < angerCost) {
-    return { ok: false, reason: `需要捨棄怒氣區 ${angerCost} 張卡，目前不足` };
+  const cost = computeCost(state, seat, def);
+  if (side.life.filter((l) => !l.tapped).length < cost.life) {
+    return { ok: false, reason: `需要橫置 ${cost.life} 張生命卡，目前不足` };
   }
+  if (side.anger.length < cost.anger) {
+    return { ok: false, reason: `需要捨棄怒氣區 ${cost.anger} 張卡，目前不足` };
+  }
+
+  return { ok: true };
+}
+
+export function playCard(state: GameState, seat: Seat, iid: number): PlayResult {
+  const check = cardPlayability(state, seat, iid);
+  if (!check.ok) return check;
+
+  const side = state.sides[seat];
+  const inst = side.hand.find((c) => c.iid === iid)!;
+  const def = card(inst.defId);
 
   // ── 所有檢查通過，開始結算 ──
-  if (cost > 0) {
-    payLifeCost(state, seat, cost);
-    log(state, seat, `${seatLabel(seat)}橫置了 ${cost} 張生命卡支付費用。`, 'info');
+  const cost = computeCost(state, seat, def);
+  const freeIdx = side.freeNextCards.indexOf(def.id);
+  if (freeIdx >= 0) {
+    side.freeNextCards.splice(freeIdx, 1);
+    log(state, seat, `【拋下狠話】生效：「${def.name}」免費用。`, 'info');
+  } else {
+    consumeOnceCostBuffs(state, seat, def);
   }
-  if (angerCost > 0) {
-    payAngerCost(state, seat, angerCost);
-    log(state, seat, `${seatLabel(seat)}捨棄怒氣區 ${angerCost} 張卡作為費用代價。`, 'info');
+  if (cost.life > 0) {
+    payLifeCost(state, seat, cost.life);
+    log(state, seat, `${seatLabel(seat)}橫置了 ${cost.life} 張生命卡支付費用。`, 'info');
+  }
+  if (cost.anger > 0) {
+    payAngerCost(state, seat, cost.anger);
+    log(state, seat, `${seatLabel(seat)}捨棄怒氣區 ${cost.anger} 張卡作為費用代價。`, 'info');
   }
 
   side.hand.splice(
@@ -480,23 +614,34 @@ export function playCard(state: GameState, seat: Seat, iid: number): PlayResult 
 
   switch (def.kind) {
     case 'equipment':
-      side.equipment.push(inst);
-      log(state, seat, `${seatLabel(seat)}裝備了「${def.name}」（${EQUIP_LABEL[def.slot ?? 'weapon']}）。`, 'info');
-      applyEffects(state, seat, def.effects, def.name);
+      equipCard(state, seat, inst);
       break;
 
     case 'action':
       log(state, seat, `${seatLabel(seat)}使用了行動卡「${def.name}」。`, 'info');
-      applyEffects(state, seat, def.effects, def.name);
+      applyEffects(state, seat, def.effects, def.name, { sourceIid: inst.iid });
       routeCardAfterPlay(state, seat, inst);
       break;
 
-    case 'event':
+    case 'event': {
       side.eventsUsedThisTurn += 1;
       log(state, seat, `${seatLabel(seat)}使用了事件卡「${def.name}」。`, 'info');
-      applyEffects(state, seat, def.effects, def.name);
-      routeCardAfterPlay(state, seat, inst);
+
+      const tax = eventTaxedBy(state, seat);
+      if (tax) applyEffect(state, OTHER_SEAT[seat], { type: 'forceOpponentHandToAnger' }, tax.name);
+
+      applyEffects(state, seat, def.effects, def.name, { sourceIid: inst.iid });
+      placeEvent(state, seat, inst);
+
+      // 金項鍊：我方打出事件時重置
+      for (const eq of side.equipment) {
+        if (card(eq.defId).untapOnOwnEvent && side.tappedEquipment.includes(eq.iid)) {
+          side.tappedEquipment = side.tappedEquipment.filter((x) => x !== eq.iid);
+          log(state, seat, `「${nameOf(eq)}」因打出事件而重置。`, 'info');
+        }
+      }
       break;
+    }
 
     case 'quest':
       // 任務卡打出後蓋到任務牌組最底下，排入未來的任務隊列
@@ -512,55 +657,90 @@ export function playCard(state: GameState, seat: Seat, iid: number): PlayResult 
   return { ok: true };
 }
 
-/** 詠唱招式：可在主要階段支付費用打出，戰鬥階段作為額外出招引爆 */
-export function chantTechnique(state: GameState, seat: Seat, iid: number): PlayResult {
-  if (state.winner) return { ok: false, reason: '遊戲已經結束' };
-  if (state.phase !== 'main') return { ok: false, reason: '現在不是主要階段' };
-  if (state.activeSeat !== seat) return { ok: false, reason: '不是你的回合' };
+/** 這張手牌現在能不能詠唱 */
+export function chantPlayability(state: GameState, seat: Seat, iid: number): PlayResult {
+  const gate = mainPhaseGate(state, seat);
+  if (gate) return gate;
 
   const side = state.sides[seat];
-  if (side.chantsUsedThisTurn >= RULES.chantsPerTurn) {
-    return { ok: false, reason: `每回合最多詠唱 ${RULES.chantsPerTurn} 次` };
+  if (chantsLeft(state, seat, RULES.chantsPerTurn) <= 0) {
+    return { ok: false, reason: '本回合的詠唱次數已用完' };
   }
 
   const inst = side.hand.find((c) => c.iid === iid);
   if (!inst) return { ok: false, reason: '手牌中沒有這張卡' };
 
   const def = card(inst.defId);
-  if (!def.chant) {
-    return { ok: false, reason: '這張卡沒有詠唱特性' };
-  }
+  if (!def.chant) return { ok: false, reason: '這張卡沒有詠唱特性' };
 
   if (!canPlayWithCooldown(state, seat, inst.defId)) {
     return { ok: false, reason: '冷卻區已有同名卡，達到儲存上限' };
   }
 
-  const cost = Math.max(0, def.chant.cost + modifier(state, seat, 'cost'));
-  if (side.life.filter((l) => !l.tapped).length < cost) {
-    return { ok: false, reason: `需要橫置 ${cost} 張生命卡進行詠唱，目前不足` };
+  const cost = chantCost(state, seat, def);
+  if (chantResources(state, seat) < cost) {
+    return { ok: false, reason: `需要支付 ${cost} 點詠唱費用，目前不足` };
   }
+  return { ok: true };
+}
 
-  if (cost > 0) {
-    payLifeCost(state, seat, cost);
-    log(state, seat, `${seatLabel(seat)}橫置了 ${cost} 張生命卡支付詠唱費用。`, 'info');
-  }
+/** 詠唱招式：可在主要階段支付費用打出，戰鬥階段作為額外出招引爆 */
+export function chantTechnique(state: GameState, seat: Seat, iid: number): PlayResult {
+  const check = chantPlayability(state, seat, iid);
+  if (!check.ok) return check;
 
+  const side = state.sides[seat];
+  const inst = side.hand.find((c) => c.iid === iid)!;
+  const def = card(inst.defId);
+
+  payChantCost(state, seat, chantCost(state, seat, def));
   side.hand.splice(
     side.hand.findIndex((c) => c.iid === iid),
     1,
   );
-
-  side.chantedCards.push(inst);
   side.chantsUsedThisTurn += 1;
-  side.stats.playKind[def.kind] += 1;
-  if (def.tier) side.stats.playTier[def.tier] += 1;
+  performChant(state, seat, inst, '手牌');
 
-  log(
-    state,
-    seat,
-    `${seatLabel(seat)}詠唱了「${def.name}」（${def.chant.text}）。`,
-    'combat',
-  );
+  evaluateAllQuests(state);
+  return { ok: true };
+}
+
+/** 這張裝備現在能不能發動（主要階段橫置發動的能力） */
+export function activationPlayability(state: GameState, seat: Seat, iid: number): PlayResult {
+  const gate = mainPhaseGate(state, seat);
+  if (gate) return gate;
+
+  const side = state.sides[seat];
+  const inst = side.equipment.find((c) => c.iid === iid);
+  if (!inst) return { ok: false, reason: '裝備區沒有這張卡' };
+
+  const act = card(inst.defId).activate;
+  if (!act) return { ok: false, reason: '這張裝備沒有可發動的能力' };
+  if (side.tappedEquipment.includes(iid)) return { ok: false, reason: '這張裝備已經橫置' };
+
+  const lifeCost = act.lifeCost ?? 0;
+  if (side.life.filter((l) => !l.tapped).length < lifeCost) {
+    return { ok: false, reason: `需要橫置 ${lifeCost} 張生命卡，目前不足` };
+  }
+  return { ok: true };
+}
+
+/** 發動裝備能力：支付費用、橫置這張裝備，然後結算效果 */
+export function activateEquipment(state: GameState, seat: Seat, iid: number): PlayResult {
+  const check = activationPlayability(state, seat, iid);
+  if (!check.ok) return check;
+
+  const inst = state.sides[seat].equipment.find((c) => c.iid === iid)!;
+  const def = card(inst.defId);
+  const act = def.activate!;
+
+  if (act.lifeCost) {
+    payLifeCost(state, seat, act.lifeCost);
+    log(state, seat, `${seatLabel(seat)}橫置了 ${act.lifeCost} 張生命卡發動「${def.name}」。`, 'info');
+  }
+  log(state, seat, `${seatLabel(seat)}發動裝備「${def.name}」。`, 'info');
+  tapEquipment(state, seat, iid);
+  applyEffects(state, seat, act.effects, def.name, { sourceIid: iid });
 
   evaluateAllQuests(state);
   return { ok: true };
@@ -593,9 +773,27 @@ export function endTurn(state: GameState): void {
   if (state.winner) return;
 
   clearCombat(state);
+  resolveTurnEnd(state, seat);
+  if (state.winner) return;
   expireBuffs(state, seat, 'turnEnd');
 
   beginTurn(state, OTHER_SEAT[seat]);
+}
+
+/**
+ * 回合結束時的共同處理：
+ *   - 「對手回合結束時」離場的裝備（藥膏貼布）放到持有者的怒氣區底
+ *   - 事件區的事件放 1 個持續時間指示物（到期就捨棄）
+ */
+function resolveTurnEnd(state: GameState, seat: Seat): void {
+  const other = OTHER_SEAT[seat];
+  for (const eq of [...state.sides[other].equipment]) {
+    if (card(eq.defId).leavesAtOpponentTurnEnd) {
+      removeEquipment(state, other, eq.iid, 'angerBottom');
+      log(state, other, `對手回合結束，${seatLabel(other)}的「${nameOf(eq)}」放到怒氣區底。`, 'info');
+    }
+  }
+  tickEventZone(state);
 }
 
 /**
@@ -616,6 +814,8 @@ export function endTurnFully(state: GameState): void {
   evaluateAllQuests(state);
   if (state.winner) return;
 
+  resolveTurnEnd(state, state.activeSeat);
+  if (state.winner) return;
   expireBuffs(state, state.activeSeat, 'turnEnd');
   beginTurn(state, OTHER_SEAT[state.activeSeat]);
 }

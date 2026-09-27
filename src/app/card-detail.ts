@@ -48,6 +48,14 @@ import { CARD_KIND_LABEL, EQUIP_LABEL, TECHNIQUE_LABEL } from './game/types';
             @if (def()!.cooldown) {
               <span class="tag tag--emerald">冷卻({{ def()!.cooldown }})</span>
             }
+            @if (def()!.kind === 'event') {
+              <span class="tag tag--violet">
+                {{ def()!.duration !== undefined ? '持續時間(' + def()!.duration + ')' : '持續至被取代' }}
+              </span>
+            }
+            @if (def()!.activate) {
+              <span class="tag tag--amber">可發動</span>
+            }
           </div>
 
           <!-- 數值列 -->

@@ -291,6 +291,14 @@ export class App {
   readonly turn = this.store.turn;
   readonly winner = this.store.winner;
   readonly combat = this.store.combat;
+
+  /** 事件區（雙方共用） */
+  readonly eventZone = computed(() => this.store.state().eventZone);
+  /** 事件區那張事件的持續時間；undefined = 直到被取代 */
+  readonly eventDuration = computed(() => {
+    const ev = this.eventZone();
+    return ev ? card(ev.card.defId).duration : undefined;
+  });
   readonly log = this.store.log;
   readonly player = this.store.player;
   readonly npc = this.store.npc;
@@ -529,6 +537,8 @@ export class App {
       const hit = combatPool.find((c) => c.iid === iid);
       if (hit) return hit;
     }
+
+    if (s.eventZone?.card.iid === iid) return s.eventZone.card;
 
     for (const seat of ['player', 'npc'] as const) {
       const side = s.sides[seat];
@@ -771,6 +781,38 @@ export class App {
   /** 點一張卡：加入選取，選滿就自動結算 */
   chooseCard(iid: number): void {
     this.store.chooseCard(iid);
+  }
+
+  /** 選替代選項（例如「不發動」） */
+  chooseAlt(): void {
+    this.store.chooseAlt();
+  }
+
+  // ─────────────────────────────────────────────
+  // 裝備（橫置、指示物、發動）
+  // ─────────────────────────────────────────────
+
+  isEquipTapped(seat: Seat, iid: number): boolean {
+    return this.store.state().sides[seat].tappedEquipment.includes(iid);
+  }
+
+  /** 裝備上的持續時間指示物（沒有時回傳 0，模板用 @if 判斷） */
+  equipCounters(seat: Seat, iid: number): number {
+    return this.store.state().sides[seat].equipCounters[iid] ?? 0;
+  }
+
+  /** 點我方裝備：可以發動就發動 */
+  activateEquipment(iid: number): void {
+    if (this.store.canActivate(iid)) this.store.activate(iid);
+  }
+
+  equipTitle(iid: number): string {
+    const seat = this.store.mySeat();
+    const inst = this.store.state().sides[seat].equipment.find((c) => c.iid === iid);
+    if (!inst) return '';
+    if (this.isEquipTapped(seat, iid)) return '已橫置（重置階段復原）';
+    if (!card(inst.defId).activate) return '';
+    return this.store.canActivate(iid) ? '點擊發動這張裝備的能力（會橫置此卡）' : '主要階段才能發動';
   }
 
   getCooldownRemaining(seat: Seat, iid: number): number {

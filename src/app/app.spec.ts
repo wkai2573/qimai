@@ -166,7 +166,7 @@ describe('App', () => {
     }
   });
 
-  it('牌堆區置中僅保留 [牌組]、[怒氣]、[棄牌]、[LEVEL] 4 個牌堆', async () => {
+  it('牌堆區置中為 [牌組]、[怒氣]、[棄牌]、[LEVEL]、[任務] 5 個牌堆，任務堆在 LEVEL 右邊', async () => {
     const fixture = TestBed.createComponent(App);
     await fixture.whenStable();
 
@@ -176,10 +176,13 @@ describe('App', () => {
 
     for (const container of Array.from(centerContainers)) {
       const stacks = Array.from(container.querySelectorAll('.pile-stack'));
-      expect(stacks.length).toBe(4);
+      expect(stacks.length).toBe(5);
 
       const labels = stacks.map((s) => s.querySelector('span:last-child')?.textContent?.trim());
-      expect(labels).toEqual(['牌組', '怒氣', '棄牌', 'LEVEL']);
+      expect(labels).toEqual(['牌組', '怒氣', '棄牌', 'LEVEL', '任務']);
+
+      // 任務堆只顯示張數，不能點開查看（不是按鈕）
+      expect(stacks[4].tagName).toBe('DIV');
     }
   });
 
@@ -219,6 +222,38 @@ describe('App', () => {
     const playerLeft = el.querySelectorAll('.pile-area')[1].querySelector('.pile-stacks-left');
     expect(playerLeft?.querySelector('.pile-stack--cooldown')).toBeTruthy();
     expect(playerLeft?.querySelector('.pile-stack--chant')).toBeTruthy();
+  });
+
+  it('事件區顯示事件的持有者與指示物；可發動的我方裝備會亮框，點擊就發動並橫置', async () => {
+    const fixture = TestBed.createComponent(App);
+    const app = fixture.componentInstance;
+    await fixture.whenStable();
+
+    (app.store as any)._state.update((s: any) => ({
+      ...s,
+      phase: 'main',
+      activeSeat: 'player',
+      pending: null,
+      eventZone: { card: { iid: 901, defId: 'rg_shenshenxian' }, owner: 'player', counters: 1 },
+      sides: {
+        ...s.sides,
+        player: { ...s.sides.player, equipment: [{ iid: 902, defId: 'rg_eq_toujin' }], tappedEquipment: [], equipCounters: {} },
+      },
+    }));
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const el = fixture.nativeElement as HTMLElement;
+    expect(el.textContent).toContain('我方事件');
+    expect(el.textContent).toContain('1 / 2');
+
+    const chip = el.querySelector('.equip-activatable') as HTMLElement | null;
+    expect(chip).toBeTruthy();
+    chip!.click();
+    fixture.detectChanges();
+
+    expect(app.store.state().sides.player.tappedEquipment).toContain(902);
+    expect(el.querySelector('.equip-activatable')).toBeNull();
   });
 
   it('冷卻區卡牌能正確取得並顯示剩餘回合數', async () => {

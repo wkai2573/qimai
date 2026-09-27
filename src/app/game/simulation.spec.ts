@@ -9,10 +9,11 @@
 import { describe, expect, it } from 'vitest';
 
 import { combatPhase, mainPhase, shouldBurst } from './ai';
-import { card } from './cards';
+import { CARD_DEFS, RAGE_MAIN_DECK, MAGE_MAIN_DECK, card, validateMainDeck } from './cards';
 import { clearCombat, finishCombat } from './combat';
 import { createGame, endTurnFully, enterCombat, resolveBurst, resolveChoice, resolveRebuild } from './engine';
-import type { GameState } from './types';
+import type { CardInstance, CharacterId, GameState, Seat } from './types';
+import { RULES } from './types';
 
 /** 讓當前回合的行動方自動打完他的整個回合 */
 function autoTurn(state: GameState): void {
@@ -39,13 +40,18 @@ function autoTurn(state: GameState): void {
     resolveBurst(state, shouldBurst(state, seat));
   }
 
+  // 出牌引發了待決選擇時先回去處理（跟真人一樣，選完才能繼續），下一輪會接著這個階段做
+  const waiting = (): boolean => !!state.pending || !!state.pendingRebuild;
+
   if (state.phase === 'main' && !state.winner) {
     mainPhase(state, seat);
+    if (waiting()) return;
     if (!state.winner) enterCombat(state);
   }
 
   if (state.phase === 'combat' && !state.winner) {
     combatPhase(state, seat);
+    if (waiting()) return;
     finishCombat(state);
     clearCombat(state);
   }
@@ -140,4 +146,106 @@ describe('整局模擬', () => {
     expect(g.winner).not.toBeNull();
     expect(g.phase).toBe('ended');
   });
+});
+
+// ─────────────────────────────────────────────
+// 新卡（事件區、裝備發動、詠唱擴充）整局模擬
+// ─────────────────────────────────────────────
+
+/** 用「不在預設牌組裡的新卡」湊出一副合法的 50 張牌組 */
+function newCardDeck(char: CharacterId, defaults: Readonly<Record<string, number>>): Record<string, number> {
+  const prefix = char === 'rage' ? 'rg_' : 'mg_';
+  const ids = CARD_DEFS.filter((d) => d.id.startsWith(prefix) && !(d.id in defaults)).map((d) => d.id);
+  const deck: Record<string, number> = {};
+  let total = 0;
+  let hidden = 0;
+
+  // 輪流每張加 1，直到 50 張（遵守同名上限與密奧義上限）
+  while (total < RULES.mainDeckSize) {
+    let added = false;
+    for (const id of ids) {
+      if (total >= RULES.mainDeckSize) break;
+      const isHidden = card(id).tier === 'hidden';
+      if ((deck[id] ?? 0) >= RULES.maxCopiesPerName) continue;
+      if (isHidden && hidden >= RULES.maxHiddenTechniques) continue;
+      deck[id] = (deck[id] ?? 0) + 1;
+      total++;
+      if (isHidden) hidden++;
+      added = true;
+    }
+    if (!added) break;
+  }
+  return deck;
+}
+
+/** 某一方目前握有的所有卡（含事件區、戰鬥區、檢索中的卡） */
+function ownedCards(g: GameState, seat: Seat): CardInstance[] {
+  const side = g.sides[seat];
+  const out: CardInstance[] = [
+    ...side.deck,
+    ...side.hand,
+    ...side.life.map((l) => l.card),
+    ...side.anger,
+    ...side.discard,
+    ...side.equipment,
+    ...side.levelZone,
+    ...side.questDeck,
+    ...(side.currentQuest ? [side.currentQuest] : []),
+    ...side.cooldownZone.map((cd) => cd.card),
+    ...side.chantedCards,
+  ];
+  if (g.eventZone?.owner === seat) out.push(g.eventZone.card);
+  for (const p of [g.pending, ...g.pendingQueue]) {
+    if (p?.kind === 'search' && p.seat === seat) out.push(...p.candidates);
+  }
+  if (g.combat) {
+    if (g.combat.attacker === seat) {
+      out.push(...g.combat.plays.map((p) => p.card));
+      out.push(...g.combat.chantPlays.map((p) => p.card).filter((c) => !side.chantedCards.some((x) => x.iid === c.iid)));
+    }
+    if (g.combat.defender === seat) out.push(...g.combat.defenseCards);
+  }
+  return out;
+}
+
+describe('新卡整局模擬', () => {
+  const rageDeck = newCardDeck('rage', RAGE_MAIN_DECK);
+  const mageDeck = newCardDeck('mage', MAGE_MAIN_DECK);
+
+  it('用新卡湊出的牌組是合法牌組', () => {
+    expect(validateMainDeck(rageDeck, 'rage').errors).toEqual([]);
+    expect(validateMainDeck(mageDeck, 'mage').errors).toEqual([]);
+  });
+
+  for (const mode of ['solo', 'p2p'] as const) {
+    it(`${mode === 'p2p' ? '雙方都要自己選（連線）' : '單機'}：40 局都能分出勝負，卡片不會憑空增減或重複`, () => {
+      const unfinished: number[] = [];
+
+      for (let seed = 1; seed <= 40; seed++) {
+        const swap = seed % 2 === 0;
+        const g = createGame(seed, {
+          manualLifeSetup: false,
+          manualLifeSetupBoth: mode === 'p2p',
+          playerCharacter: swap ? 'mage' : 'rage',
+          npcCharacter: swap ? 'rage' : 'mage',
+          mainDeck: swap ? mageDeck : rageDeck,
+          npcMainDeck: swap ? rageDeck : mageDeck,
+        });
+        const expected = { player: ownedCards(g, 'player').length, npc: ownedCards(g, 'npc').length };
+
+        let guard = 0;
+        while (!g.winner && guard++ < 500) {
+          autoTurn(g);
+
+          const all = [...ownedCards(g, 'player'), ...ownedCards(g, 'npc')];
+          expect(new Set(all.map((c) => c.iid)).size, `seed ${seed}：有卡片重複出現`).toBe(all.length);
+          expect(ownedCards(g, 'player').length, `seed ${seed}：玩家的卡片張數不守恆`).toBe(expected.player);
+          expect(ownedCards(g, 'npc').length, `seed ${seed}：對手的卡片張數不守恆`).toBe(expected.npc);
+        }
+        if (!g.winner) unfinished.push(seed);
+      }
+
+      expect(unfinished, `未結束的對局：${unfinished.join(', ')}`).toEqual([]);
+    });
+  }
 });

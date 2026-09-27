@@ -11,7 +11,9 @@ export type GameAction =
   | { type: 'END_COMBAT' }
   | { type: 'END_TURN' }
   | { type: 'CHOOSE_CARD'; iid: number }
-  | { type: 'CHOOSE_LIFE'; iid: number };
+  | { type: 'CHOOSE_ALT' }
+  | { type: 'CHOOSE_LIFE'; iid: number }
+  | { type: 'ACTIVATE'; iid: number };
 
 /** P2P 網路傳輸訊息 */
 export type P2PMessage =

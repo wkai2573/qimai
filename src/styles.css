@@ -722,6 +722,32 @@ body {
   filter: grayscale(0.7);
 }
 
+/* 可以發動能力的裝備：亮框提示「點我」 */
+.equip-activatable {
+  cursor: pointer;
+  border-color: rgba(252, 211, 77, 0.85);
+  box-shadow: 0 0 0 1px rgba(252, 211, 77, 0.45), 0 0 8px rgba(252, 211, 77, 0.35);
+}
+
+/* 裝備上的持續時間指示物 */
+.counter-badge {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  display: flex;
+  height: 14px;
+  min-width: 14px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  background: rgb(124, 58, 237);
+  padding: 0 3px;
+  font-size: 9px;
+  font-weight: 900;
+  color: white;
+  box-shadow: 0 0 0 1px rgba(196, 181, 253, 0.5);
+}
+
 /* ── 資源堆疊（牌組／怒氣／棄牌） ─────────────────────
    用兩層往右下偏移的 box-shadow 堆出「一疊牌」的厚度。
    刻意不用偽元素：絕對定位 + z-index:-1 會被父層背景蓋掉。

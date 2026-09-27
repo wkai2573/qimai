@@ -567,6 +567,265 @@ export const ART_BY_ID: Record<string, string> = {
     <path d="M32 14v36M24 22l8-8 8 8" />
   `),
 
+  // 狂怒修羅擴充
+  rg_xiyan: art(`
+    <rect x="10" y="38" width="36" height="7" rx="2" />
+    <path d="M40 38v7" />
+    <path d="M50 34c-4-4 4-8 0-12s4-8 0-12" opacity=".6" />
+  `),
+  rg_hejiu: art(`
+    <path d="M28 10h8v10l6 8v24a2 2 0 0 1-2 2H24a2 2 0 0 1-2-2V28l6-8z" />
+    <path d="M22 36h20M28 14h8" />
+  `),
+  rg_nuqichang: art(`
+    <circle cx="32" cy="32" r="22" stroke-dasharray="5 4" />
+    <circle cx="32" cy="32" r="14" />
+    <path d="M32 22c5 5 7 8 7 12a7 7 0 0 1-14 0c0-4 2-7 7-12z" ${F} opacity=".85" />
+  `),
+  rg_yingyuan: art(`
+    <path d="M16 54V12M16 14h28l-6 8 6 8H16" />
+    <circle cx="36" cy="44" r="4" />
+    <circle cx="48" cy="44" r="4" />
+    <path d="M30 56c0-4 12-4 12 0M42 56c0-4 12-4 12 0" />
+  `),
+  rg_eq_gunbang: art(`
+    <path d="M14 50L44 20" stroke-width="5" />
+    <path d="M48 10v10M43 15h10" />
+  `),
+  rg_eq_gunbang89: art(`
+    <path d="M14 50L46 18M18 18l32 32" stroke-width="4" />
+    <path d="M32 6v8M28 10h8" />
+  `),
+  rg_eq_xiaodao: art(`
+    <path d="M12 52l22-22" stroke-width="4" />
+    <path d="M34 30l14-18 4 4-18 14z" />
+    <path d="M20 36l8 8" />
+  `),
+  rg_eq_diaoga: art(`
+    <path d="M22 10c0 8 4 12 10 12s10-4 10-12M22 10l-6 4v40h32V14l-6-4" />
+    <path d="M16 30h32" opacity=".4" />
+  `),
+  rg_eq_pifeng: art(`
+    <path d="M22 12h20l10 40H12z" />
+    <path d="M22 12c2 6 18 6 20 0" />
+    <path d="M32 18v34" opacity=".4" />
+  `),
+  rg_eq_guaeryan: art(`
+    <path d="M26 14c12-4 22 6 18 18-2 6-8 8-8 14 0 6-8 8-12 4" />
+    <rect x="10" y="20" width="22" height="5" rx="2" transform="rotate(-20 21 22)" />
+    <path d="M8 14c-2-3 2-5 0-8" opacity=".6" />
+  `),
+  rg_eq_toujin: art(`
+    <path d="M12 34c0-12 9-20 20-20s20 8 20 20z" />
+    <path d="M12 34h40M48 34l8 10-10-2z" />
+    <circle cx="26" cy="26" r="2" ${F} />
+    <circle cx="38" cy="24" r="2" ${F} />
+  `),
+  rg_eq_pijiu: art(`
+    <rect x="20" y="12" width="24" height="40" rx="4" />
+    <path d="M20 20h24M20 44h24" />
+    <path d="M28 30h8v8h-8z" opacity=".6" />
+  `),
+  rg_eq_fanghua: art(`
+    <path d="M20 52V28a4 4 0 0 1 8 0V18a4 4 0 0 1 8 0v8a4 4 0 0 1 8 0v26z" />
+    <circle cx="26" cy="40" r="1.8" ${F} />
+    <circle cx="32" cy="44" r="1.8" ${F} />
+    <circle cx="38" cy="40" r="1.8" ${F} />
+  `),
+  rg_eq_jiaotuo: art(`
+    <ellipse cx="32" cy="34" rx="12" ry="20" />
+    <path d="M32 22l-8 12M32 22l8 12" />
+    <circle cx="32" cy="22" r="2" ${F} />
+  `),
+  rg_eq_muji: art(`
+    <rect x="14" y="20" width="36" height="10" rx="3" />
+    <path d="M20 30v14M44 30v14M20 44h8M40 44h8M24 20l8-8 8 8" />
+  `),
+  rg_eq_yaogao: art(`
+    <rect x="12" y="22" width="40" height="20" rx="10" transform="rotate(-30 32 32)" />
+    <path d="M32 26v12M26 32h12" />
+  `),
+  rg_eq_jinxianglian: art(`
+    <path d="M14 14c0 18 8 28 18 28s18-10 18-28" stroke-dasharray="3 3" />
+    <circle cx="32" cy="48" r="6" />
+    <circle cx="32" cy="48" r="2" ${F} />
+  `),
+  rg_eq_bengdai: art(`
+    <circle cx="24" cy="32" r="12" />
+    <circle cx="24" cy="32" r="4" />
+    <path d="M24 20h26v24H24" />
+    <path d="M36 26v12M44 26v12" opacity=".5" />
+  `),
+  rg_tech_jiaoxiao: art(`
+    <path d="M10 24l12 8-12 8z" />
+    <path d="M28 20c6 4 6 20 0 24M36 16c10 6 10 26 0 32M44 12c14 8 14 32 0 40" />
+  `),
+  rg_tech_boming: art(`
+    <rect x="18" y="22" width="24" height="20" rx="4" />
+    <path d="M24 22v-6a3 3 0 0 1 6 0v6M30 22v-5a3 3 0 0 1 6 0v5" />
+    <path d="M48 40c0 3-2 5-4 5s-4-2-4-5 4-8 4-8 4 5 4 8z" ${F} />
+  `),
+  rg_tech_xienu: art(`
+    <path d="M20 50V28a4 4 0 0 1 8 0v-8a4 4 0 0 1 8 0v8a4 4 0 0 1 8 0v22z" />
+    <path d="M48 18l8-6M50 28h8M48 38l8 6" />
+  `),
+  rg_tech_nizhuan: art(`
+    <path d="M44 20a16 16 0 1 0 4 16" />
+    <path d="M44 10v10H34" />
+    <path d="M32 26v12M26 32h12" opacity=".5" />
+  `),
+  rg_tech_huyou: art(`
+    <circle cx="20" cy="22" r="5" />
+    <circle cx="32" cy="18" r="5" />
+    <circle cx="44" cy="22" r="5" />
+    <path d="M12 44c0-8 16-8 16 0M24 40c0-8 16-8 16 0M36 44c0-8 16-8 16 0" />
+  `),
+  rg_tech_nuyan: art(`
+    <path d="M12 52L52 12" stroke-width="4" />
+    <path d="M26 44c-6-6-4-12 2-16 0 6 4 6 6 2 4 6 2 12-2 16" />
+  `),
+  rg_tech_yanmian: art(`
+    <path d="M20 12h24M20 52h24M22 12c0 12 20 12 20 20S22 40 22 52M42 12c0 12-20 12-20 20s20 8 20 20" />
+    <path d="M50 28c6 4 6 12 0 16" opacity=".6" />
+  `),
+  rg_tech_sheshen: art(`
+    <circle cx="32" cy="18" r="6" />
+    <path d="M32 24v14l-10 14M32 38l10 14M20 30h24" />
+    <path d="M10 14l6 4M54 14l-6 4M10 40l6-2M54 40l-6-2" opacity=".6" />
+  `),
+  rg_tech_bengtian: art(`
+    <path d="M8 20h48" />
+    <path d="M32 20l-6 10 8 6-6 12 4 8" />
+    <path d="M16 12l4 6M48 12l-4 6" />
+  `),
+  rg_tech_baibing: art(`
+    <path d="M32 52L16 14M32 52l-6-40M32 52l6-40M32 52l16-38" />
+    <circle cx="32" cy="52" r="4" ${F} />
+  `),
+  rg_tech_diyu: art(`
+    <path d="M8 50h48" />
+    <path d="M16 50c-4-8 2-12 4-18 2 6 6 6 6 0 4 6 4 12 2 18M34 50c-4-10 4-16 6-24 2 8 8 10 6 24" />
+  `),
+  rg_tech_kuangtao: art(`
+    <path d="M8 44c8-4 12 4 20 0s12-4 20 0 8 2 8 2" />
+    <path d="M8 34c10-2 14-18 28-18 8 0 12 6 8 10-4 4-10 0-8-4" />
+    <path d="M8 54c8-4 12 4 20 0s12-4 20 0" opacity=".5" />
+  `),
+
+  // 祕法星詠擴充
+  mg_gaosu: art(`
+    <path d="M10 20l16 12-16 12zM28 20l16 12-16 12z" />
+    <path d="M50 16v32" />
+  `),
+  mg_kuaisu: art(`
+    <path d="M32 14v36M16 23l32 18M16 41l32-18" />
+    <path d="M48 12a20 20 0 0 1 4 14" />
+    <path d="M52 18v8h-8" />
+  `),
+  mg_jiasu: art(`
+    <path d="M22 12h20M22 52h20M24 12c0 12 16 12 16 20S24 40 24 52M40 12c0 12-16 12-16 20s16 8 16 20" />
+    <path d="M48 26l6 6-6 6" />
+  `),
+  mg_bingfeng: art(`
+    <rect x="14" y="14" width="36" height="36" rx="4" />
+    <path d="M32 20v24M22 26l20 12M22 38l20-12" />
+  `),
+  mg_dianshan: art(`
+    <path d="M36 8L18 36h12l-4 20 20-30H34z" />
+  `),
+  mg_huoguang: art(`
+    <path d="M32 16c8 8 12 14 12 22a12 12 0 0 1-24 0c0-8 4-14 12-22z" />
+    <path d="M32 6v4M12 22l4 2M52 22l-4 2" />
+  `),
+  mg_lichang: art(`
+    <path d="M32 8l20 12v24L32 56 12 44V20z" />
+    <path d="M32 18l12 7v14l-12 7-12-7V25z" stroke-dasharray="3 3" />
+  `),
+  mg_modao: art(`
+    <path d="M12 16c8-4 14-4 20 0v36c-6-4-12-4-20 0zM52 16c-8-4-14-4-20 0v36c6-4 12-4 20 0z" />
+    <path d="M42 14v14l3-3 3 3V14" />
+  `),
+  mg_eq_xianzhang: art(`
+    <path d="M22 56L40 20" />
+    <circle cx="44" cy="14" r="7" />
+    <circle cx="44" cy="14" r="2.5" ${F} />
+  `),
+  mg_eq_xianpao: art(`
+    <path d="M24 10h16l12 44H12z" />
+    <path d="M24 10c2 5 14 5 16 0" />
+    <path d="M32 30l2 4 4 1-3 3 1 4-4-2-4 2 1-4-3-3 4-1z" ${F} />
+  `),
+  mg_eq_mipao: art(`
+    <path d="M24 10h16l12 44H12z" />
+    <path d="M24 10c2 5 14 5 16 0" />
+    <circle cx="32" cy="36" r="6" stroke-dasharray="2 2" />
+  `),
+  mg_eq_mimao: art(`
+    <path d="M32 8L20 44h24z" />
+    <path d="M10 46c8 6 36 6 44 0" />
+    <circle cx="34" cy="26" r="2.5" ${F} />
+  `),
+  mg_eq_yuansu: art(`
+    <rect x="14" y="10" width="36" height="44" rx="3" />
+    <path d="M24 22c4 4 4 8 0 10-4-2-4-6 0-10z" />
+    <path d="M40 20v10M35 25h10" />
+    <path d="M30 40l-4 6h6l-4 6" />
+  `),
+  mg_el_huoqiu: art(`
+    <circle cx="36" cy="30" r="12" />
+    <path d="M24 36c-6 2-10 6-14 12M26 42c-4 4-6 8-8 12" />
+    <path d="M36 22c4 4 4 10 0 14-4-4-4-10 0-14z" ${F} opacity=".7" />
+  `),
+  mg_el_bingzhui: art(`
+    <path d="M32 8l8 44H24z" />
+    <path d="M32 8v44" opacity=".5" />
+    <path d="M26 30h12" />
+  `),
+  mg_el_dianqiu: art(`
+    <circle cx="32" cy="32" r="16" />
+    <path d="M34 18l-8 14h8l-4 14" />
+  `),
+  mg_el_huoqiang: art(`
+    <path d="M8 52h48" />
+    <path d="M12 52c-2-8 4-12 4-20 4 6 6 10 4 20M26 52c-2-10 4-16 6-26 4 10 6 16 2 26M42 52c-2-8 4-12 4-20 4 6 6 10 4 20" />
+  `),
+  mg_el_bingqiang: art(`
+    <rect x="10" y="20" width="44" height="32" />
+    <path d="M10 36h44M24 20v16M40 20v16M18 36v16M32 36v16M46 36v16" />
+    <path d="M18 20l4-8 4 8M38 20l4-8 4 8" />
+  `),
+  mg_el_dianwang: art(`
+    <path d="M12 12l40 40M52 12L12 52M32 8v48M8 32h48" opacity=".6" />
+    <path d="M36 20l-8 10h8l-6 14" />
+  `),
+  mg_el_huoyu: art(`
+    <path d="M16 22c0-8 32-8 32 0" />
+    <path d="M18 30l-4 10M30 30l-4 12M42 30l-4 10M24 44l-3 8M38 44l-3 8" />
+  `),
+  mg_el_bingshuang: art(`
+    <path d="M32 8v48M8 32h48M15 15l34 34M49 15L15 49" />
+    <circle cx="32" cy="32" r="8" />
+  `),
+  mg_el_diancipao: art(`
+    <rect x="8" y="26" width="30" height="12" rx="3" />
+    <path d="M38 32h8M50 20l-4 10h6l-4 14" />
+    <path d="M14 26v12M22 26v12" opacity=".5" />
+  `),
+  mg_tech_wanquan: art(`
+    <circle cx="32" cy="32" r="22" />
+    <circle cx="32" cy="32" r="16" stroke-dasharray="3 3" />
+    <path d="M32 18l4 9 10 1-7 7 2 10-9-5-9 5 2-10-7-7 10-1z" />
+  `),
+  mg_tech_dianguang: art(`
+    <path d="M26 8L12 34h10l-4 22 16-28H24z" />
+    <path d="M44 24c6 6 8 10 8 16a8 8 0 0 1-16 0c0-6 2-10 8-16z" />
+  `),
+  mg_tech_bingling: art(`
+    <path d="M10 54V30l8-6 6 6V18l8-10 8 10v12l6-6 8 6v24z" />
+    <path d="M28 54V42h8v12" />
+    <path d="M32 18v10" opacity=".5" />
+  `),
+
   // 任務
   qst_first: Q_FIRST,
   qst_combo: Q_COMBO,

@@ -7,14 +7,18 @@
  */
 
 import { card } from './cards';
+import { checkCondition, matchFilter } from './conditions';
 import { Rng } from './rng';
 import type {
   Buff,
+  CardDef,
   CardInstance,
   GameState,
   LogTone,
   ModifierTarget,
+  PendingChoice,
   PendingRebuild,
+  RebuildResume,
   Seat,
   SideState,
   TurnStats,
@@ -51,6 +55,8 @@ export function emptyStats(): TurnStats {
     rebuilt: 0,
     combos: [],
     tierSequence: [],
+    techPlayed: [],
+    chants: 0,
   };
 }
 
@@ -99,12 +105,26 @@ export function nameOf(inst: CardInstance): string {
 // 增益與常駐冷卻加成
 // ─────────────────────────────────────────────
 
-/** 某座位在指定數值上的增益總和（包含主動 BUFF 與冷卻區常駐效果） */
+/** 增益目前是否生效（有條件的增益要條件成立） */
+function buffActive(state: GameState, seat: Seat, b: Buff): boolean {
+  return !b.condition || checkCondition(state, seat, b.condition);
+}
+
+/**
+ * 某座位在指定數值上的增益總和（主動 BUFF、冷卻區常駐效果、事件區持續效果）。
+ * 只加成特定卡的增益（有 filter）不算在這裡，要用 modifierFor 針對那張卡查。
+ */
 export function modifier(state: GameState, seat: Seat, target: ModifierTarget): number {
   const side = state.sides[seat];
   const fromBuffs = side.buffs
-    .filter((b) => b.target === target)
+    .filter((b) => b.target === target && !b.filter && buffActive(state, seat, b))
     .reduce((sum, b) => sum + b.amount, 0);
+
+  const ev = state.eventZone;
+  const fromEvent =
+    ev && ev.owner === seat
+      ? (card(ev.card.defId).aura ?? []).filter((a) => a.target === target).reduce((sum, a) => sum + a.amount, 0)
+      : 0;
 
   const fromCooldown = side.cooldownZone
     .map((cd) => {
@@ -117,11 +137,178 @@ export function modifier(state: GameState, seat: Seat, target: ModifierTarget): 
     .filter((cb): cb is NonNullable<typeof cb> => !!cb && cb.target === target)
     .reduce((sum, cb) => sum + cb.amount, 0);
 
-  return fromBuffs + fromCooldown;
+  return fromBuffs + fromCooldown + fromEvent;
+}
+
+/** 只加成這張卡的增益（例如「名稱含火的招式 +2」「應援團費用 -1」） */
+function filteredBuffs(state: GameState, seat: Seat, target: ModifierTarget, def: CardDef, iid?: number): Buff[] {
+  return state.sides[seat].buffs.filter(
+    (b) =>
+      b.target === target &&
+      !!b.filter &&
+      matchFilter(def, b.filter) &&
+      (iid === undefined || b.excludeIid !== iid) &&
+      buffActive(state, seat, b),
+  );
+}
+
+/** 針對某張卡的增益總和：通用增益 + 只加成這張卡的增益 */
+export function modifierFor(state: GameState, seat: Seat, target: ModifierTarget, def: CardDef, iid?: number): number {
+  return modifier(state, seat, target) + filteredBuffs(state, seat, target, def, iid).reduce((sum, b) => sum + b.amount, 0);
 }
 
 export function addBuff(side: SideState, buff: Omit<Buff, 'id'>, nextId: () => number): void {
   side.buffs.push({ ...buff, id: nextId() });
+}
+
+// ─────────────────────────────────────────────
+// 費用計算
+// ─────────────────────────────────────────────
+
+/** 打出一張卡實際要付的費用：生命卡橫置數與怒氣捨棄數 */
+export interface CardCost {
+  life: number;
+  anger: number;
+}
+
+/**
+ * 計算打出這張卡的實際費用（主要階段打出或戰鬥出招）。
+ * 詠唱費用另有 chantCost。
+ */
+export function computeCost(state: GameState, seat: Seat, def: CardDef): CardCost {
+  const side = state.sides[seat];
+
+  if (def.kind === 'technique' && modifier(state, seat, 'freeTechnique') > 0) {
+    return { life: 0, anger: 0 };
+  }
+  if (side.freeNextCards.includes(def.id)) {
+    return { life: 0, anger: def.angerCost ?? 0 };
+  }
+
+  let life = def.cost + modifierFor(state, seat, 'cost', def);
+  if (def.costReduction && checkCondition(state, seat, def.costReduction.when)) {
+    life -= def.costReduction.amount;
+  }
+  return { life: Math.max(0, life), anger: def.angerCost ?? 0 };
+}
+
+/** 付完費用後：用掉「下一張…費用 -N」這類一次性減費 */
+export function consumeOnceCostBuffs(state: GameState, seat: Seat, def: CardDef): void {
+  const side = state.sides[seat];
+  const used = new Set(filteredBuffs(state, seat, 'cost', def).filter((b) => b.once).map((b) => b.id));
+  if (used.size > 0) side.buffs = side.buffs.filter((b) => !used.has(b.id));
+}
+
+/** 詠唱費用：「詠唱費用改為 N」優先，否則為卡面詠唱費用加上費用增益 */
+export function chantCost(state: GameState, seat: Seat, def: CardDef): number {
+  if (!def.chant) return 0;
+  const fixed = state.sides[seat].buffs.filter((b) => b.target === 'chantCostFixed' && buffActive(state, seat, b));
+  if (fixed.length > 0) return Math.max(0, Math.min(...fixed.map((b) => b.amount)));
+  return Math.max(0, def.chant.cost + modifier(state, seat, 'cost'));
+}
+
+/** 本回合還能詠唱幾次（每回合上限 + 額外詠唱次數） */
+export function chantsLeft(state: GameState, seat: Seat, perTurn: number): number {
+  const side = state.sides[seat];
+  return perTurn + modifier(state, seat, 'extraChant') - side.chantsUsedThisTurn;
+}
+
+// ─────────────────────────────────────────────
+// 裝備
+// ─────────────────────────────────────────────
+
+export function isEquipTapped(state: GameState, seat: Seat, iid: number): boolean {
+  return state.sides[seat].tappedEquipment.includes(iid);
+}
+
+/** 未橫置的裝備 */
+export function untappedEquipment(state: GameState, seat: Seat): CardInstance[] {
+  const side = state.sides[seat];
+  return side.equipment.filter((c) => !side.tappedEquipment.includes(c.iid));
+}
+
+/**
+ * 裝備離場：移出裝備區，連同它的橫置狀態、指示物與它給的增益一起清掉，
+ * 然後放到指定的區域。
+ */
+export function removeEquipment(state: GameState, seat: Seat, iid: number, to: 'angerBottom' | 'discard'): CardInstance | null {
+  const side = state.sides[seat];
+  const idx = side.equipment.findIndex((c) => c.iid === iid);
+  if (idx < 0) return null;
+
+  const [inst] = side.equipment.splice(idx, 1);
+  side.tappedEquipment = side.tappedEquipment.filter((x) => x !== iid);
+  delete side.equipCounters[iid];
+  side.buffs = side.buffs.filter((b) => b.sourceIid !== iid);
+
+  if (to === 'angerBottom') side.anger.unshift(inst);
+  else side.discard.push(inst);
+  return inst;
+}
+
+/** 重置階段：橫置的裝備全部復原 */
+export function readyAllEquipment(state: GameState, seat: Seat): void {
+  state.sides[seat].tappedEquipment = [];
+}
+
+/** 捨棄怒氣區頂 N 張進棄牌區，回傳實際張數 */
+export function discardFromAnger(state: GameState, seat: Seat, n: number): number {
+  const side = state.sides[seat];
+  let moved = 0;
+  for (let i = 0; i < n; i++) {
+    const c = side.anger.pop();
+    if (!c) break;
+    side.discard.push(c);
+    moved++;
+  }
+  return moved;
+}
+
+/**
+ * 【秘法法袍／秘法帽】受到傷害前，用裝備上的指示物代替受到傷害。
+ * 每張卡依自己的比例換算，比例低（划算）的先用。回傳剩下要受的傷害。
+ */
+function absorbWithCounters(state: GameState, seat: Seat, n: number): number {
+  const side = state.sides[seat];
+  const shields = side.equipment
+    .map((c) => ({ inst: c, shield: card(c.defId).counterShield }))
+    .filter((x): x is { inst: CardInstance; shield: NonNullable<CardDef['counterShield']> } => !!x.shield)
+    .sort((a, b) => a.shield.ratio - b.shield.ratio);
+
+  let remaining = n;
+  for (const { inst, shield } of shields) {
+    if (remaining <= 0) break;
+    const have = side.equipCounters[inst.iid] ?? 0;
+    const prevent = Math.min(remaining, Math.floor(have / shield.ratio));
+    if (prevent <= 0) continue;
+
+    side.equipCounters[inst.iid] = have - prevent * shield.ratio;
+    remaining -= prevent;
+    log(state, seat, `「${nameOf(inst)}」移除 ${prevent * shield.ratio} 個指示物，抵擋了 ${prevent} 點傷害。`, 'combat');
+  }
+  return remaining;
+}
+
+// ─────────────────────────────────────────────
+// 待決選擇排隊
+// ─────────────────────────────────────────────
+
+/** 需要真人自己選的座位（單機的 NPC 由 AI 直接決定） */
+export function isHumanSeat(state: GameState, seat: Seat): boolean {
+  return seat === 'player' || state.mode === 'p2p';
+}
+
+/** 加入一個待決選擇；已經有選擇在等時排到後面 */
+export function pushPending(state: GameState, choice: PendingChoice): void {
+  if (choice.candidates.length === 0 || choice.pick <= 0) return;
+  choice.pick = Math.min(choice.pick, choice.candidates.length);
+  if (state.pending) state.pendingQueue.push(choice);
+  else state.pending = choice;
+}
+
+/** 目前的選擇結束，換下一個排隊中的選擇 */
+export function advancePending(state: GameState): void {
+  state.pending = state.pendingQueue.shift() ?? null;
 }
 
 /** 檢查手牌中的卡片是否因冷卻區同名限制而無法打出（需符合儲存 storage(X) 條件） */
@@ -145,7 +332,7 @@ export function availableLife(state: GameState, seat: Seat): number {
 }
 
 // ─────────────────────────────────────────────
-// 費用
+// 費用支付
 // ─────────────────────────────────────────────
 
 /**
@@ -201,7 +388,7 @@ export type RebuildResult = 'done' | 'pending' | 'failed';
 /**
  * 重構：牌組沒牌時觸發。
  *   1. 從生命區取 1 張卡加入手牌（生命區已空 → 該方敗北）
- *   2. 將棄牌區全部洗勻成為新牌組（棄牌區也空 → 無法重建，該方敗北）
+ *   2. 將棄牌區全部洗勻成為新牌組（重構後牌組還是 0 張 → 該方敗北）
  *
  * 生命區有多張時，**玩家要自己挑哪一張進手牌**，所以這裡會回傳 'pending'
  * 並把遊戲停在待決狀態，等 UI 呼叫 resolveRebuild() 接手。
@@ -218,6 +405,15 @@ export function rebuild(
 ): RebuildResult {
   const side = state.sides[seat];
 
+  // 【繃帶】重構前：這張卡放到怒氣區底，並捨棄怒氣區 N 張（讓新牌組厚一點）
+  for (const eq of [...side.equipment]) {
+    const n = card(eq.defId).beforeRebuildDiscardAnger;
+    if (!n) continue;
+    removeEquipment(state, seat, eq.iid, 'angerBottom');
+    const moved = discardFromAnger(state, seat, n);
+    log(state, seat, `【${nameOf(eq)}】${seatLabel(seat)}的牌組見底，將它放到怒氣區底並捨棄怒氣區 ${moved} 張卡。`, 'rebuild');
+  }
+
   if (side.life.length === 0) {
     log(state, seat, `${seatLabel(seat)}的生命區已空，無法重構。`, 'rebuild');
     endGame(state, OTHER_SEAT[seat]);
@@ -229,7 +425,8 @@ export function rebuild(
     return finishRebuild(state, seat, side.life[0].card.iid, remaining, resume);
   }
 
-  if (seat === 'player' || state.mode === 'p2p') {
+  // 同一時間只能等一方選生命卡；另一方已經在等時（極少見，例如雙方同時抽乾），這一方自動挑
+  if (isHumanSeat(state, seat) && !state.pendingRebuild) {
     state.pendingRebuild = { seat, remaining, resume };
     log(state, seat, `【牌組耗盡・重構】請從${seat === 'player' ? '你' : '對手'}的生命區挑選 1 張卡加入手牌。`, 'rebuild');
     return 'pending';
@@ -273,16 +470,19 @@ function finishRebuild(
     'rebuild',
   );
 
-  if (side.discard.length === 0) {
-    log(state, seat, `${seatLabel(seat)}的棄牌區也是空的，無法重建牌組。`, 'rebuild');
+  // 等玩家選生命卡的期間，後續效果可能已經把卡放回牌組頂（例如回復）；那些卡留在頂端，不能被蓋掉
+  side.deck = [...side.deck, ...withRng(state, (rng) => rng.shuffle(side.discard))];
+  const size = side.deck.length;
+  side.discard = [];
+
+  // 敗北條件：重構後牌組還是 0 張
+  if (size === 0) {
+    log(state, seat, `${seatLabel(seat)}重構後牌組仍然是 0 張（棄牌區沒有卡可洗）。`, 'rebuild');
     endGame(state, OTHER_SEAT[seat]);
     state.pendingRebuild = null;
     return 'failed';
   }
 
-  side.deck = withRng(state, (rng) => rng.shuffle(side.discard));
-  const size = side.deck.length;
-  side.discard = [];
   log(state, seat, `【牌組重構】${seatLabel(seat)}將棄牌區 ${size} 張卡洗勻成為新牌組。`, 'rebuild');
 
   state.pendingRebuild = null;
@@ -291,27 +491,51 @@ function finishRebuild(
 
 /**
  * 玩家挑完生命卡後接手：完成重構，並把當初被打斷的動作補完。
+ *
+ * 規則：受到 10 點傷害、牌組只剩 3 張時，先丟 3 張 → 重構 → 用新牌組繼續丟 7 張。
+ * 等待期間又進來的抽牌／傷害（queued）也依序補完。
  */
 export function resolveRebuild(state: GameState, iid: number): void {
   const pending = state.pendingRebuild;
   if (!pending || state.winner) return;
 
   const { seat, remaining, resume } = pending;
+  const tasks = [{ resume, remaining }, ...(pending.queued ?? [])];
   const result = finishRebuild(state, seat, iid, remaining, resume);
+  if (result !== 'done') return;
 
-  if (result !== 'done' || remaining <= 0 || state.winner) return;
+  for (const task of tasks) {
+    if (state.winner) return;
+    if (task.remaining <= 0) continue;
+    // 補的過程中牌組又空了、又在等重構：剩下的繼續排隊
+    if (deferUntilRebuilt(state, seat, task.remaining, task.resume)) continue;
+    runRebuildTask(state, seat, task.resume, task.remaining);
+  }
+}
 
+function runRebuildTask(state: GameState, seat: Seat, resume: RebuildResume, n: number): void {
   switch (resume) {
     case 'draw':
-      draw(state, seat, remaining);
+      draw(state, seat, n);
       break;
     case 'anger':
-      millToAnger(state, seat, remaining);
+      millToAnger(state, seat, n);
       break;
     case 'discard':
-      millToDiscard(state, seat, remaining);
+      millToDiscard(state, seat, n);
       break;
   }
+}
+
+/**
+ * 這一方正在等重構選生命卡：剩下的張數排到重構完成後再處理，回傳 true。
+ * 等的是另一方的重構就不影響，回傳 false。
+ */
+function deferUntilRebuilt(state: GameState, seat: Seat, remaining: number, resume: RebuildResume): boolean {
+  const pr = state.pendingRebuild;
+  if (!pr || pr.seat !== seat) return false;
+  if (remaining > 0) (pr.queued ??= []).push({ resume, remaining });
+  return true;
 }
 
 /**
@@ -323,7 +547,7 @@ export function draw(state: GameState, seat: Seat, n: number): number {
   let drawn = 0;
 
   for (let i = 0; i < n; i++) {
-    if (state.winner || state.pendingRebuild) break;
+    if (state.winner || deferUntilRebuilt(state, seat, n - i, 'draw')) break;
 
     if (side.deck.length === 0) {
       const result = rebuild(state, seat, n - i, 'draw');
@@ -341,16 +565,31 @@ export function draw(state: GameState, seat: Seat, n: number): number {
   return drawn;
 }
 
-/** 把牌組頂 N 張送進怒氣區，並回傳移入的卡片實例 */
-export function millToAngerCards(state: GameState, seat: Seat, n: number): { count: number; cards: CardInstance[] } {
+/**
+ * 受到 N 點傷害：牌組頂 N 張送進怒氣區，並回傳移入的卡片實例。
+ * 裝備上的指示物可以先代替受到傷害（秘法法袍／秘法帽）。
+ * 牌組中途見底會先重構再繼續；要等玩家選生命卡時，deferred 是重構後才會補完的點數。
+ */
+export function millToAngerCards(
+  state: GameState,
+  seat: Seat,
+  n: number,
+): { count: number; cards: CardInstance[]; deferred: number } {
   const side = state.sides[seat];
   const movedCards: CardInstance[] = [];
+  let deferred = 0;
+  n = absorbWithCounters(state, seat, n);
 
   for (let i = 0; i < n; i++) {
-    if (state.winner || state.pendingRebuild) break;
+    if (state.winner) break;
+    if (deferUntilRebuilt(state, seat, n - i, 'anger')) {
+      deferred = n - i;
+      break;
+    }
 
     if (side.deck.length === 0) {
       const result = rebuild(state, seat, n - i, 'anger');
+      if (result === 'pending') deferred = n - i;
       if (result !== 'done') break;
     }
 
@@ -361,7 +600,7 @@ export function millToAngerCards(state: GameState, seat: Seat, n: number): { cou
   }
 
   side.stats.damageTaken += movedCards.length;
-  return { count: movedCards.length, cards: movedCards };
+  return { count: movedCards.length, cards: movedCards, deferred };
 }
 
 /** 把牌組頂 N 張直接送進怒氣區（等同受到 N 點傷害，但不由戰鬥產生） */
@@ -375,7 +614,7 @@ export function millToDiscard(state: GameState, seat: Seat, n: number): number {
   let moved = 0;
 
   for (let i = 0; i < n; i++) {
-    if (state.winner || state.pendingRebuild) break;
+    if (state.winner || deferUntilRebuilt(state, seat, n - i, 'discard')) break;
 
     if (side.deck.length === 0) {
       const result = rebuild(state, seat, n - i, 'discard');

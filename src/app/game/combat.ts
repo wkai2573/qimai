@@ -9,13 +9,15 @@
  */
 
 import { card } from './cards';
-import { applyEffects, checkCondition } from './effects';
+import { applyEffects, chantDetonationDamage, checkCondition } from './effects';
 import {
   canPlayWithCooldown,
+  computeCost,
+  consumeOnceCostBuffs,
   log,
-  millToAnger,
   millToAngerCards,
   modifier,
+  modifierFor,
   nameOf,
   payAngerCost,
   payLifeCost,
@@ -25,7 +27,7 @@ import {
   toDiscard,
 } from './internal';
 import { detectCombos, evaluateQuest } from './quests';
-import type { CardInstance, ChantCombatPlay, CombatState, GameState, Seat } from './types';
+import type { CardInstance, ChantCombatPlay, CombatPlay, CombatState, GameState, Seat } from './types';
 import { OTHER_SEAT, TECHNIQUE_LABEL, TECHNIQUE_ORDER } from './types';
 
 export interface PlayResult {
@@ -43,7 +45,7 @@ export function beginCombat(state: GameState, attacker: Seat): void {
 
   for (const c of side.chantedCards) {
     const def = card(c.defId);
-    const damage = Math.max(0, (def.chant?.damage ?? 0) + modifier(state, attacker, 'chantDamage'));
+    const damage = chantDetonationDamage(state, attacker, c);
     chantPlays.push({
       card: c,
       damage,
@@ -99,14 +101,12 @@ export function techniquePlayability(state: GameState, seat: Seat, iid: number):
     return { ok: false, reason: '解放條件尚未滿足' };
   }
 
-  const cost = Math.max(0, def.cost + modifier(state, seat, 'cost'));
-  if (cost > 0 && state.sides[seat].life.filter((l) => !l.tapped).length < cost) {
-    return { ok: false, reason: `需要橫置 ${cost} 張生命卡` };
+  const cost = computeCost(state, seat, def);
+  if (cost.life > 0 && state.sides[seat].life.filter((l) => !l.tapped).length < cost.life) {
+    return { ok: false, reason: `需要橫置 ${cost.life} 張生命卡` };
   }
-
-  const angerCost = def.angerCost ?? 0;
-  if (state.sides[seat].anger.length < angerCost) {
-    return { ok: false, reason: `需要捨棄怒氣區 ${angerCost} 張卡` };
+  if (state.sides[seat].anger.length < cost.anger) {
+    return { ok: false, reason: `需要捨棄怒氣區 ${cost.anger} 張卡` };
   }
 
   return { ok: true };
@@ -122,17 +122,16 @@ export function playTechnique(state: GameState, seat: Seat, iid: number): PlayRe
   const inst = side.hand.find((c) => c.iid === iid) as CardInstance;
   const def = card(inst.defId);
 
-  // 支付費用
-  const cost = Math.max(0, def.cost + modifier(state, seat, 'cost'));
-  if (cost > 0) {
-    payLifeCost(state, seat, cost);
-    log(state, seat, `${seatLabel(seat)}橫置了 ${cost} 張生命卡支付招式費用。`, 'info');
+  // 支付費用（應援團在場時招式免費，包括額外費用）
+  const cost = computeCost(state, seat, def);
+  consumeOnceCostBuffs(state, seat, def);
+  if (cost.life > 0) {
+    payLifeCost(state, seat, cost.life);
+    log(state, seat, `${seatLabel(seat)}橫置了 ${cost.life} 張生命卡支付招式費用。`, 'info');
   }
-
-  const angerCost = def.angerCost ?? 0;
-  if (angerCost > 0) {
-    payAngerCost(state, seat, angerCost);
-    log(state, seat, `${seatLabel(seat)}捨棄怒氣區 ${angerCost} 張卡作為費用代價。`, 'info');
+  if (cost.anger > 0) {
+    payAngerCost(state, seat, cost.anger);
+    log(state, seat, `${seatLabel(seat)}捨棄怒氣區 ${cost.anger} 張卡作為費用代價。`, 'info');
   }
 
   // 移出手牌
@@ -146,11 +145,12 @@ export function playTechnique(state: GameState, seat: Seat, iid: number): PlayRe
   side.stats.tierSequence.push(tier);
   side.stats.playTier[tier] += 1;
   side.stats.playKind.technique += 1;
+  side.stats.techPlayed.push(def.id);
 
-  // 計算這一擊的傷害：基礎 + 招式傷害增益 + 密奧義專屬增益 + 連招加成
+  // 計算這一擊的傷害：基礎 + 招式傷害增益（含只加成這張卡的） + 密奧義專屬增益 + 連招加成
   let damage = def.damage ?? 0;
-  damage += modifier(state, seat, 'techniqueDamage');
-  if (tier === 'hidden') damage += modifier(state, seat, 'hiddenDamage');
+  damage += modifierFor(state, seat, 'techniqueDamage', def, inst.iid);
+  if (tier === 'hidden') damage += modifierFor(state, seat, 'hiddenDamage', def, inst.iid);
 
   if (def.comboBonus) {
     const seq = side.stats.tierSequence;
@@ -164,19 +164,13 @@ export function playTechnique(state: GameState, seat: Seat, iid: number): PlayRe
     }
   }
 
-  // 替罪羊判定：對手處於免疫特技密技狀態時，特技與密技造成 0 傷害
-  if (defender.immuneTrickSecretNextTurn && (tier === 'trick' || tier === 'secret')) {
-    damage = 0;
-    log(state, combat.defender, `【替罪羊生效】${seatLabel(combat.defender)}免疫了特技與密技傷害！`, 'combat');
-  }
-
-  damage = Math.max(0, damage);
-  combat.plays.push({ tier, card: inst, damage });
+  const play: CombatPlay = { tier, card: inst, damage: Math.max(0, damage) };
+  combat.plays.push(play);
 
   log(
     state,
     seat,
-    `${seatLabel(seat)}打出【${TECHNIQUE_LABEL[tier]}】「${def.name}」（造成 ${damage} 點打擊）。`,
+    `${seatLabel(seat)}打出【${TECHNIQUE_LABEL[tier]}】「${def.name}」（造成 ${play.damage} 點打擊）。`,
     'combat',
   );
 
@@ -189,8 +183,15 @@ export function playTechnique(state: GameState, seat: Seat, iid: number): PlayRe
     }
   }
 
-  // 其餘效果（回復、抽牌等）
-  applyEffects(state, seat, def.effects, def.name);
+  // 其餘效果（回復、抽牌、「此卡傷害 +X」等）
+  applyEffects(state, seat, def.effects, def.name, { sourceIid: inst.iid, play });
+
+  // 替罪羊判定：對手處於免疫特技密技狀態時，特技與密技造成 0 傷害
+  if (defender.immuneTrickSecretNextTurn && (tier === 'trick' || tier === 'secret')) {
+    play.damage = 0;
+    log(state, combat.defender, `【替罪羊生效】${seatLabel(combat.defender)}免疫了特技與密技傷害！`, 'combat');
+  }
+  play.damage = Math.max(0, play.damage);
 
   // 出招可能就滿足任務條件（例如「一個回合內打出 2 張招式卡」）
   evaluateQuest(state, seat);
@@ -222,7 +223,8 @@ export function resolveDefense(state: GameState): void {
   const flipped: CardInstance[] = [];
   for (let i = 0; i < count; i++) {
     if (state.winner) break;
-    if (side.deck.length === 0 && !rebuild(state, combat.defender)) break;
+    // 牌組見底先重構；要等玩家選生命卡時這次就不再翻（傷害會在重構完成後補算）
+    if (side.deck.length === 0 && rebuild(state, combat.defender) !== 'done') break;
     const top = side.deck.shift();
     if (!top) break;
     flipped.push(top);
@@ -231,8 +233,9 @@ export function resolveDefense(state: GameState): void {
   combat.defenseCards = flipped;
 
   const guardFromCards = flipped.reduce((sum, c) => sum + card(c.defId).guard, 0);
-  const guardBonus = modifier(state, combat.defender, 'guardValue');
-  const guardReduction = combat.chantPlays.reduce((sum, cp) => sum + (cp.guardReduction ?? 0), 0);
+  const guardBonus = modifier(state, combat.defender, 'guardValue') + eventCounterGuard(state, combat.defender);
+  const guardReduction =
+    combat.chantPlays.reduce((sum, cp) => sum + (cp.guardReduction ?? 0), 0) + guardBreak(state, combat);
   combat.defenseGuard = Math.max(0, guardFromCards + guardBonus - guardReduction);
 
   const shown = flipped.map((c) => `「${nameOf(c)}」(防禦 ${card(c.defId).guard})`).join('、');
@@ -244,6 +247,50 @@ export function resolveDefense(state: GameState): void {
     }${guardReduction ? `，詠唱削弱 -${guardReduction}` : ''} → 總防禦值 ${combat.defenseGuard}。`,
     'combat',
   );
+}
+
+/** 【秘法力場】防禦方的事件在事件區時，防禦值 + 事件上的指示物數 */
+function eventCounterGuard(state: GameState, defender: Seat): number {
+  const ev = state.eventZone;
+  if (!ev || ev.owner !== defender || !card(ev.card.defId).guardFromCounters) return 0;
+  if (ev.counters > 0) {
+    log(state, defender, `【${nameOf(ev.card)}】防禦值 +${ev.counters}。`, 'combat');
+  }
+  return ev.counters;
+}
+
+/** 【防滑手套】攻擊方條件成立時，對手防禦值 − 我方最後一張招式的防禦值 */
+function guardBreak(state: GameState, combat: CombatState): number {
+  const attacker = state.sides[combat.attacker];
+  const last = combat.plays[combat.plays.length - 1]?.card ?? combat.chantPlays[combat.chantPlays.length - 1]?.card;
+  if (!last) return 0;
+
+  let total = 0;
+  for (const eq of attacker.equipment) {
+    const cond = card(eq.defId).guardBreakByLastTechnique;
+    if (!cond || !checkCondition(state, combat.attacker, cond)) continue;
+    const x = card(last.defId).guard;
+    total += x;
+    log(state, combat.attacker, `【${nameOf(eq)}】對手的防禦判定 −${x}（「${nameOf(last)}」的防禦值）。`, 'combat');
+  }
+  return total;
+}
+
+/** 【元素之章】依本回合打出招式的名稱種類數，傷害計算時追加傷害 */
+function elementBonus(state: GameState, seat: Seat): number {
+  const side = state.sides[seat];
+  let total = 0;
+  for (const eq of side.equipment) {
+    const eb = card(eq.defId).elementBonus;
+    if (!eb) continue;
+    const kinds = eb.names.filter((n) => side.stats.techPlayed.some((id) => card(id).name.includes(n))).length;
+    const bonus = eb.bonusByKinds[kinds] ?? 0;
+    if (bonus > 0) {
+      total += bonus;
+      log(state, seat, `【${nameOf(eq)}】本回合打出 ${kinds} 種元素招式，傷害 +${bonus}。`, 'combat');
+    }
+  }
+  return total;
 }
 
 // ─────────────────────────────────────────────
@@ -258,7 +305,7 @@ export function resolveDamage(state: GameState): void {
 
   const techTotal = combat.plays.reduce((sum, p) => sum + p.damage, 0);
   const chantTotal = combat.chantPlays.reduce((sum, p) => sum + p.damage, 0);
-  const grossTotal = techTotal + chantTotal;
+  const grossTotal = techTotal + chantTotal + elementBonus(state, combat.attacker);
   const netAfterGuard = Math.max(0, grossTotal - combat.defenseGuard);
   const damageReduction = modifier(state, combat.defender, 'damageReduction');
   combat.damage = Math.max(0, netAfterGuard - damageReduction);
@@ -277,7 +324,8 @@ export function resolveDamage(state: GameState): void {
 
   const res = millToAngerCards(state, combat.defender, combat.damage);
   const moved = res.count;
-  state.sides[combat.attacker].stats.damageDealt += moved;
+  // 重構後才補完的傷害也算是這次攻擊造成的
+  state.sides[combat.attacker].stats.damageDealt += moved + res.deferred;
 
   const movedNames = res.cards.map((c) => `「${nameOf(c)}」`).join('、');
   log(
@@ -287,7 +335,7 @@ export function resolveDamage(state: GameState): void {
       damageReduction ? ` − 減傷 ${damageReduction}` : ''
     } = ${combat.damage} 點。${seatLabel(combat.defender)}受到 ${moved} 點傷害${
       movedNames ? `，將 ${movedNames} 送入怒氣區` : ''
-    }。`,
+    }${res.deferred > 0 ? `，重構後再承受剩下的 ${res.deferred} 點` : ''}。`,
     'combat',
   );
 }
@@ -309,7 +357,12 @@ export function returnCombatCards(state: GameState): void {
   for (const cp of combat.chantPlays) {
     routeCardAfterPlay(state, combat.attacker, cp.card);
   }
-  state.sides[combat.attacker].chantedCards = [];
+  // 戰鬥開始後才詠唱的卡沒有引爆，但一樣要離開詠唱區
+  const attackerSide = state.sides[combat.attacker];
+  for (const c of attackerSide.chantedCards) {
+    if (!combat.chantPlays.some((cp) => cp.card.iid === c.iid)) routeCardAfterPlay(state, combat.attacker, c);
+  }
+  attackerSide.chantedCards = [];
 
   // 防禦卡一律進入防禦方的棄牌區
   toDiscard(state, combat.defender, combat.defenseCards);
